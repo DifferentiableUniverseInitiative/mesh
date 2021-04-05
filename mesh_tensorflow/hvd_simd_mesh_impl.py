@@ -21,13 +21,13 @@ from __future__ import print_function
 
 import math
 import os
-
+import collections
 from mesh_tensorflow import ops_with_redefined_builtins as mtf
 from mesh_tensorflow import utils
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
 import tensorflow.compat.v1 as tf
-
+from mpi4py import MPI
 import horovod.tensorflow as hvd
 
 class HvdSimdMeshImpl(mtf.MeshImpl):
@@ -44,36 +44,37 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     """
     super(HvdSimdMeshImpl, self).__init__(shape, layout)
     tf.logging.info("HvdSimdMeshImpl init: {0} {1}".format(shape, layout))
-    self._pnum_tensor = None
+
+    # Initializing communicators
+    comms, comms_id = self._create_communicators(shape)
+    self._comms = comms
+    self._comms_id = comms_id
+
+    # And initializing horovod with our set of communicators
+    hvd.init(comm=[c for _, c in comms])
+    self.pnum_tensor = hvd.rank()
+
     self.graph_device_function_stacks = []
     self.copy_master_to_slice_ops = []
-    self._groups = {}
 
-  @property
-  def pnum_tensor(self):
-    if self._pnum_tensor is not None:
-      return self._pnum_tensor
-    with utils.outside_all_rewrites():
-      tf.logging.info("Create pnum_tensor")
-      self._pnum_tensor = hvd.rank()
-      return self._pnum_tensor
-
-  def get_group_id(self, mesh_axis):
-    """ Maintains an history of various device groups needed to perform
-    computations using this mesh.
+  def _create_communicators(self, mesh_shape):
+    """ Creates MPI communicators required for a given mesh shape
+    Note that the first communicator, of index 0 is the world comm.
     """
-    group_assignments = mtf.processor_groups(self.shape, [mesh_axis])
-    # Checking if these groups have already been registered, adding them if
-    # necessary, and retrieving the index of the group in the list
-    group_id = -1
-    for g in group_assignments:
-      if str(g) not in self._groups:
-        # This group didn't exist, so we register it
-        gid = hvd.register_group(1, str(g))
-        self._groups[str(g)] = gid
-      if self.pnum_tensor in g:
-        group_id = self._groups[str(g)]
-    return group_id
+    dims = [s.size for s in mesh_shape]
+    cart_comm = MPI.COMM_WORLD.Create_cart(dims=dims,
+                                           periods=[False]*len(dims))
+    communicators = collections.OrderedDict()
+    communicators_id = collections.OrderedDict()
+    communicators["world"] = cart_comm
+    communicators_id["world"] = 0
+    # Extract one sub communicator per dimension
+    for i,s in enumerate(mesh_shape):
+        remain_dims = [False]*len(dims)
+        remain_dims[i] = True
+        communicators[s.name] = cart_comm.Sub(remain_dims)
+        communicators_id[s.name] = i+1
+    return communicators, communicators_id
 
   class LaidOutTensor(object):
     """One Slice."""
@@ -292,9 +293,8 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
 
     # Performing reduce operation for all axes
     for mesh_axis in mesh_axes:
-      gid = self.get_group_id(mesh_axis)
-      print(self.pnum_tensor, x, gid, self._groups)
-      x = hvd._allreduce(x, group_id=gid)
+      s = self.shape[mesh_axes]
+      x = hvd._allreduce(x, communicator_id=self.comms_id[s.name])
     return self.LaidOutTensor([x])
 
   def allconcat(self, x, mesh_axis, concat_axis, stack=False):
