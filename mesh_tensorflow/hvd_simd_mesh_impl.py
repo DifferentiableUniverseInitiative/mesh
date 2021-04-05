@@ -288,13 +288,22 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
       raise ValueError("Only sum reduction is implemented with horovod backend")
 
     x = x.to_laid_out_tensor()
-    x = x.one_slice
+    t = x.one_slice
+
+    # In case the tensor is complex, let's split it in real and imag parts
+    is_complex = t.dtype == tf.complex64
+    if is_complex:
+      t = tf.stack([tf.math.real(t), tf.math.imag(t)], axis=-1)
 
     # Performing reduce operation for all axes
     for mesh_axis in mesh_axes:
       s = self.shape[mesh_axis]
-      x = hvd._allreduce(x, communicator_id=self._comms_id[s.name])
-    return self.LaidOutTensor([x])
+      t = hvd._allreduce(t, communicator_id=self._comms_id[s.name])
+
+    if is_complex:
+      t = tf.complex(t[...,0], t[...,1])
+
+    return self.LaidOutTensor([t])
 
   def allconcat(self, x, mesh_axis, concat_axis, stack=False):
     """Grouped allconcat (like MPI allgather followed by concat).
@@ -320,7 +329,15 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     t = tf.expand_dims(t, 0)
 
     # Performing concatenation on first axis
+    # In case the tensor is complex, let's split it in real and imag parts
+    is_complex = t.dtype == tf.complex64
+    if is_complex:
+      t = tf.stack([tf.math.real(t), tf.math.imag(t)], axis=-1)
+
     t = hvd.allgather(t, communicator_id=self._comms_id[name_dim])
+
+    if is_complex:
+      t = tf.complex(t[...,0], t[...,1])
 
     # Moving concatenated dimension to concat_axis
     t = tf.transpose(t, [i+1 if i < concat_axis else \
@@ -356,8 +373,16 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     # axis to the front of the tensor
     t = tf.transpose(t, [split_axis] + [i if i < split_axis else i+1 \
                                         for i in range(len(old_shape)-1)])
+
+    is_complex = t.dtype == tf.complex64
+    if is_complex:
+      t = tf.stack([tf.math.real(t), tf.math.imag(t)], axis=-1)
+
     # Now we apply an all2all on this first dimension
     t = hvd.alltoall(t, communicator_id=self._comms_id[name_dim])
+
+    if is_complex:
+      t = tf.complex(t[...,0], t[...,1])
 
     # Moving concatenated dimension to concat_axis
     t = tf.transpose(t, [i+1 if i < concat_axis else \
@@ -436,7 +461,15 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     # keeping the one we want locally
     t = tf.expand_dims(t, 0)
 
+    # In case the tensor is complex, let's split it in real and imag parts
+    is_complex = t.dtype == tf.complex64
+    if is_complex:
+      t = tf.stack([tf.math.real(t), tf.math.imag(t)], axis=-1)
+
     t = hvd.allgather(t, communicator_id=self._comms_id[name_dim])
+
+    if is_complex:
+      t = tf.complex(t[...,0], t[...,1])    
 
     # and....we only need to keep one slice... but which one...
     c = hvd.rank(communicator_id=self._comms_id[name_dim]) + offset
