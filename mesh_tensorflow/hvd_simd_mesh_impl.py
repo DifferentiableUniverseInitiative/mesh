@@ -49,9 +49,9 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     comms, comms_id = self._create_communicators(shape)
     self._comms = comms
     self._comms_id = comms_id
-
+    
     # And initializing horovod with our set of communicators
-    hvd.init(comm=[c for _, c in comms])
+    hvd.init(comm=[c for _, c in comms.items()])
     self.pnum_tensor = hvd.rank()
 
     self.graph_device_function_stacks = []
@@ -281,7 +281,6 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     """
     if not mesh_axes:
       return x
-    print('HEL7uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu')
 
     if reduction_fn_string != 'SUM':
       #TODO: Either add additional reduction ops to Horovod
@@ -293,8 +292,8 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
 
     # Performing reduce operation for all axes
     for mesh_axis in mesh_axes:
-      s = self.shape[mesh_axes]
-      x = hvd._allreduce(x, communicator_id=self.comms_id[s.name])
+      s = self.shape[mesh_axis]
+      x = hvd._allreduce(x, communicator_id=self._comms_id[s.name])
     return self.LaidOutTensor([x])
 
   def allconcat(self, x, mesh_axis, concat_axis, stack=False):
