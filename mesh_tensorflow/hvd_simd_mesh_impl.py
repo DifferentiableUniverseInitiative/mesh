@@ -49,7 +49,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     comms, comms_id = self._create_communicators(shape)
     self._comms = comms
     self._comms_id = comms_id
-    
+
     # And initializing horovod with our set of communicators
     hvd.init(comm=[c for _, c in comms.items()])
     self.pnum_tensor = hvd.rank()
@@ -313,17 +313,14 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     t = x.one_slice
     old_shape = t.shape.as_list()
     num_parts = self.shape[mesh_axis].size
-    print('HELiiiiiiiiiiiiiiiiiiiiiiiiii')
+    name_dim  = self.shape[mesh_axis].name
 
     # Horovod allconcat only support concatenations over the first dimension
     # TODO: add horovod tool to directly concatenate on given axis
     t = tf.expand_dims(t, 0)
 
     # Performing concatenation on first axis
-    gid =self.get_group_id(mesh_axis)
-    #gid =  mtf.pnum_to_group(self.shape, [mesh_axis], self.pnum_tensor)
-    print("this is my id", self.pnum_tensor, gid , t)
-    t = hvd.allgather(t, group_id=gid)
+    t = hvd.allgather(t, communicator_id=self._comms_id[name_dim])
 
     # Moving concatenated dimension to concat_axis
     t = tf.transpose(t, [i+1 if i < concat_axis else \
@@ -353,13 +350,14 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     x = x.to_laid_out_tensor()
     t = x.one_slice
     old_shape = t.shape.as_list()
-    print('HELOOOOOOOOOOOOOOOOOOOOOOOO')
+    name_dim  = self.shape[mesh_axis].name
+
     # Ok, so horovod ops happen on the first axis, we need to transpose split
     # axis to the front of the tensor
     t = tf.transpose(t, [split_axis] + [i if i < split_axis else i+1 \
                                         for i in range(len(old_shape)-1)])
     # Now we apply an all2all on this first dimension
-    t = hvd.alltoall(t, group_id=self.get_group_id(mesh_axis))
+    t = hvd.alltoall(t, communicator_id=self._comms_id[name_dim])
 
     # Moving concatenated dimension to concat_axis
     t = tf.transpose(t, [i+1 if i < concat_axis else \
