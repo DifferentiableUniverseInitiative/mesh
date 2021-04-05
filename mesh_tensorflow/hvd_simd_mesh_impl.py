@@ -366,52 +366,86 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     x = self.LaidOutTensor([t])
     return x
 
-  def receive(self, x, mesh_axis, source_pcoord):
-    """Collective receive in groups.
+  # def receive(self, x, mesh_axis, source_pcoord):
+  #   """Collective receive in groups.
+  #
+  #   Each group contains the processors that differ only in mesh_axis.
+  #
+  #   ```python
+  #   group_size = self.shape[mesh_axis].size
+  #   ```
+  #
+  #   Args:
+  #     x: a LaidOutTensor
+  #     mesh_axis: an integer
+  #     source_pcoord: a list of optional integers. Each element is either None
+  #       or an integer in [0, group_size). If source_pcoord[k] is None, then the
+  #       output for the k-th processor in each group is a zero tensor. If
+  #       source_pcoord[k] is not None, then the output for the k-th processor in
+  #       each group is equal to the input for the source_pcoord[k]-th processor
+  #       in that group.
+  #
+  #   Returns:
+  #     a LaidOutTensor
+  #   """
+  #   raise NotImplementedError
+  # x = x.to_laid_out_tensor()
+  # t = x.one_slice
+  # source_target_pairs = []
+  #
+  # for pnum in xrange(self.size):
+  #   coord = mtf.pnum_to_processor_coordinates(self.shape, pnum)
+  #   k = coord[mesh_axis]
+  #   if source_pcoord[k] is not None:
+  #     coord[mesh_axis] = source_pcoord[k]
+  #     source_pnum = mtf.processor_coordinates_to_pnum(self.shape, coord)
+  #     source_target_pairs.append(
+  #         [self.l2p(source_pnum),
+  #          self.l2p(pnum)])
+  #
+  # if not source_target_pairs:
+  #   ret = tf.zeros_like(t, t.dtype)
+  # elif t.dtype in [tf.float32, tf.bfloat16, tf.int32]:
+  #   ret = tpu_ops.collective_permute(t, source_target_pairs)
+  # else:
+  #   # If t is not one of the allowed types, cast and cast back.
+  #   ret = tf.cast(tpu_ops.collective_permute(
+  #       tf.cast(t, tf.float32), source_target_pairs), t.dtype)
+  #
+  # return self.LaidOutTensor([ret])
 
-    Each group contains the processors that differ only in mesh_axis.
-
-    ```python
-    group_size = self.shape[mesh_axis].size
-    ```
+  def shift_by_n_processors(self, x, mesh_axis, offset, wrap):
+    """Receive the slice from processor pcoord - offset.
 
     Args:
       x: a LaidOutTensor
       mesh_axis: an integer
-      source_pcoord: a list of optional integers. Each element is either None
-        or an integer in [0, group_size). If source_pcoord[k] is None, then the
-        output for the k-th processor in each group is a zero tensor. If
-        source_pcoord[k] is not None, then the output for the k-th processor in
-        each group is equal to the input for the source_pcoord[k]-th processor
-        in that group.
+      offset: an integer
+      wrap: a boolean. If True, then wrap around. Otherwise, pad with zeros.
 
     Returns:
       a LaidOutTensor
     """
     x = x.to_laid_out_tensor()
     t = x.one_slice
-    source_target_pairs = []
+    n = self.shape[mesh_axis].size
+    name_dim  = self.shape[mesh_axis].name
 
-    for pnum in xrange(self.size):
-      coord = mtf.pnum_to_processor_coordinates(self.shape, pnum)
-      k = coord[mesh_axis]
-      if source_pcoord[k] is not None:
-        coord[mesh_axis] = source_pcoord[k]
-        source_pnum = mtf.processor_coordinates_to_pnum(self.shape, coord)
-        source_target_pairs.append(
-            [self.l2p(source_pnum),
-             self.l2p(pnum)])
+    # Because we don't have access to a generic send-recv or shift operation...
+    # we are going to do something very suboptimal: gather all slices and only
+    # keeping the one we want locally
+    t = tf.expand_dims(t, 0)
 
-    if not source_target_pairs:
-      ret = tf.zeros_like(t, t.dtype)
-    elif t.dtype in [tf.float32, tf.bfloat16, tf.int32]:
-      ret = tpu_ops.collective_permute(t, source_target_pairs)
+    t = hvd.allgather(t, communicator_id=self._comms_id[name_dim])
+
+    # and....we only need to keep one slice... but which one...
+    c = hvd.rank(communicator_id=self._comms_id[name_dim]) + offset
+    if ((c >= n) or (c <0)) and (not wrap):
+      t = tf.zeros_like(x.one_slice)
     else:
-      # If t is not one of the allowed types, cast and cast back.
-      ret = tf.cast(tpu_ops.collective_permute(
-          tf.cast(t, tf.float32), source_target_pairs), t.dtype)
+      t = t[hvd.rank(communicator_id=self._comms_id[name_dim]) + offset % n]
 
-    return self.LaidOutTensor([ret])
+    return self.LaidOutTensor([t])
 
   def slice(self, tf_tensor, tensor_shape):
     """"Slice out the corresponding part of tensor given the pnum variable."""
