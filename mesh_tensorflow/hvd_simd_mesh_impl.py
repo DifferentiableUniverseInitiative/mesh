@@ -368,7 +368,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     t = x.one_slice
     old_shape = t.shape.as_list()
     name_dim  = self.shape[mesh_axis].name
-
+    
     # Ok, so horovod ops happen on the first axis, we need to transpose split
     # axis to the front of the tensor
     t = tf.transpose(t, [split_axis] + [i if i < split_axis else i+1 \
@@ -378,9 +378,13 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     if is_complex:
       t = tf.stack([tf.math.real(t), tf.math.imag(t)], axis=-1)
 
+    # The all2all should preserve the shape of the tensor, so we manually
+    # reshape the tensor after all2all
+    s = tf.shape(t)
     # Now we apply an all2all on this first dimension
     t = hvd.alltoall(t, communicator_id=self._comms_id[name_dim])
-
+    t = tf.reshape(t, s)
+    
     if is_complex:
       t = tf.complex(t[...,0], t[...,1])
 
@@ -388,6 +392,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     t = tf.transpose(t, [i+1 if i < concat_axis else \
                          i if i > concat_axis else 0 \
                          for i in range(len(old_shape))])
+
     x = self.LaidOutTensor([t])
     return x
 
