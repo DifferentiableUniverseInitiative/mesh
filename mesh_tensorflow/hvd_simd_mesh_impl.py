@@ -22,6 +22,7 @@ from __future__ import print_function
 import math
 import os
 import collections
+import numpy as np
 from mesh_tensorflow import ops_with_redefined_builtins as mtf
 from mesh_tensorflow import utils
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -52,8 +53,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
 
     # And initializing horovod with our set of communicators
     hvd.init(comm=[c for _, c in comms.items()])
-    self.pnum_tensor = hvd.rank()
-
+    
     self.graph_device_function_stacks = []
     self.copy_master_to_slice_ops = []
 
@@ -324,6 +324,13 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     num_parts = self.shape[mesh_axis].size
     name_dim  = self.shape[mesh_axis].name
 
+    print('CONCAT', stack)
+
+    # Moving axis to concatenate at the top
+    perm = [concat_axis] + [i for i in range(len(old_shape)) if i not in [concat_axis]]
+    if not stack:
+      t = tf.transpose(t, perm)
+
     # Horovod allconcat only support concatenations over the first dimension
     # TODO: add horovod tool to directly concatenate on given axis
     t = tf.expand_dims(t, 0)
@@ -338,19 +345,34 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
 
     if is_complex:
       t = tf.complex(t[...,0], t[...,1])
-
-    # Moving concatenated dimension to concat_axis
-    t = tf.transpose(t, [i+1 if i < concat_axis else \
-                         i if i > concat_axis else 0 \
-                         for i in range(len(old_shape)+1)])
+    
+    inv = np.empty_like(perm)
+    inv[perm] = np.arange(len(inv), dtype=np.int32)
 
     if not stack:
-      new_shape = old_shape[:]
-      new_shape[concat_axis] *= num_parts
-      t = tf.reshape(t, new_shape)
+      t = tf.reshape(t, [old_shape[concat_axis]*num_parts]+t.shape.as_list()[2:])
+      t = tf.transpose(t, inv)
+    else:
+      t = tf.tranpose(t, [i+1 if i < concat_axis else \
+                         i if i > concat_axis else 0 \
+                         for i in range(len(old_shape)+1)])
+    
+    # # Moving concatenated dimension to concat_axis
+    
+    # t = tf.transpose(t, [i+1 if i < concat_axis-1 else \
+    #                      i if i > concat_axis-1 else 0 \
+    #                      for i in range(len(old_shape)+1)])
 
-    # Let's just make sure everybody got there.
-    hvd.join()
+    # # print('inds', [i+1 if i < concat_axis-1 else \
+    # #                      i if i > concat_axis-1 else 0 \
+    # #                      for i in range(len(old_shape)+1)])
+    # if not stack:
+    #   new_shape = old_shape[:]
+    #   new_shape[concat_axis] *= num_parts
+    #   t = tf.reshape(t, new_shape)
+
+    # # Let's just make sure everybody got there.
+    # hvd.join()
     return self.LaidOutTensor([t])
 
   def alltoall(self, x, mesh_axis, split_axis, concat_axis):
@@ -368,11 +390,14 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     t = x.one_slice
     old_shape = t.shape.as_list()
     name_dim  = self.shape[mesh_axis].name
+
+    perm = [split_axis, concat_axis] + [i for i in range(len(old_shape)) if i not in [split_axis, concat_axis]]
     
     # Ok, so horovod ops happen on the first axis, we need to transpose split
     # axis to the front of the tensor
-    t = tf.transpose(t, [split_axis] + [i if i < split_axis else i+1 \
-                                        for i in range(len(old_shape)-1)])
+    # t = tf.transpose(t, [split_axis] + [i if i < split_axis else i+1 \
+    #                                     for i in range(len(old_shape)-1)])
+    t = tf.transpose(t, perm)
 
     is_complex = t.dtype == tf.complex64
     if is_complex:
@@ -380,19 +405,48 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
 
     # The all2all should preserve the shape of the tensor, so we manually
     # reshape the tensor after all2all
-    s = tf.shape(t)
+    s = t.shape.as_list()
+    n = hvd.size(communicator_id=self._comms_id[name_dim])
     # Now we apply an all2all on this first dimension
     t = hvd.alltoall(t, communicator_id=self._comms_id[name_dim])
-    t = tf.reshape(t, s)
+    t = tf.reshape(t, [n, s[0]//n]+ s[1:])
     
     if is_complex:
       t = tf.complex(t[...,0], t[...,1])
 
-    # Moving concatenated dimension to concat_axis
-    t = tf.transpose(t, [i+1 if i < concat_axis else \
-                         i if i > concat_axis else 0 \
-                         for i in range(len(old_shape))])
+    # At this stage t looks like [n, split_axis/n, concat_axis, ...]
+    t = tf.transpose(t, [1,0]+[i+2 for i in range(len(old_shape)-1)])
+    # At this stage t looks like [split_axis/n, n, concat_axis, ...]
+    t = tf.reshape(t, [s[0]//n, s[1]*n]+s[2:-1])
+    # At this stage t looks like [split_axis/n, n*concat_axis, ...]
+    # We can just invert the original permutation
+    inv = np.empty_like(perm)
+    inv[perm] = np.arange(len(inv), dtype=np.int32)
+    print("Heel", perm, inv, n)
+    t = tf.transpose(t, inv)
 
+    # # Permutation to move the split axis back where it belongs
+
+    # perm = [0, conc]
+    # perm = [i+1 if i < split_axis else \
+    #                      i if i > split_axis else 0 \
+    #                      for i in range(len(old_shape))]
+
+    # perm = [i for i in range(len(old_shape))]
+    # np.swapaxes(perm, 1, )
+    # t = tf.transpose(t, [0, ])
+
+
+    # # Moving concatenated dimension to concat_axis
+    # t = tf.transpose(t, [i+1 if i < concat_axis else \
+    #                      i if i > concat_axis else 0 \
+    #                      for i in range(len(old_shape))])
+    # print([split_axis] + [i if i < split_axis else i+1 \
+    #                                     for i in range(len(old_shape)-1)])
+    # print([i+1 if i < concat_axis else \
+    #                      i if i > concat_axis else 0 \
+    #                      for i in range(len(old_shape))])
+    # print("Yo",old_shape, split_axis, concat_axis, t.shape)
     x = self.LaidOutTensor([t])
     return x
 
@@ -481,26 +535,30 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     if ((c >= n) or (c <0)) and (not wrap):
       t = tf.zeros_like(x.one_slice)
     else:
-      t = t[hvd.rank(communicator_id=self._comms_id[name_dim]) + offset % n]
-
+      t = t[c % n]
+    print("HEEELLOO")
     return self.LaidOutTensor([t])
 
   def slice(self, tf_tensor, tensor_shape):
-    """"Slice out the corresponding part of tensor given the pnum variable."""
+    """"Slice out the corresponding part of tensor."""
     tensor_layout = self.tensor_layout(tensor_shape)
-
+    print(tensor_layout)
     if tensor_layout.is_fully_replicated:
       return self.LaidOutTensor([tf_tensor])
     else:
       slice_shape = self.slice_shape(tensor_shape)
+      print(slice_shape)
       slice_begins = [
-          self.slice_begin(tensor_shape, pnum) for pnum in xrange(self.size)
-      ]
+          0 if mesh_axis is None else hvd.rank(communicator_id=self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
+          for i,mesh_axis in enumerate(tensor_layout)
+          ]
+      print(slice_begins)
       slice_begins_tensor = tf.stack(slice_begins)
-      # slice on source device
-      selected_slice_begin = tf.gather(slice_begins_tensor, self.pnum_tensor)
+      # # slice on source device
+      # selected_slice_begin = tf.gather(slice_begins_tensor, self.pnum_tensor)
+      # print(selected_slice_begin, slice_shape, self.pnum_tensor )
       return self.LaidOutTensor(
-          [tf.slice(tf_tensor, selected_slice_begin, slice_shape)])
+          [tf.slice(tf_tensor, slice_begins_tensor, slice_shape)])
 
   def slicewise(self, fn, *inputs):
     """Execute a function in parallel on all slices.
