@@ -621,11 +621,14 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     """
     tensor_layout = self.tensor_layout(x.shape)
     if not tensor_layout.is_fully_replicated:
-      raise NotImplementedError(
-          "SimdMeshImpl only supports export_to_tf_tensor of fully-replicated "
-          "Tensors.  Try reshaping to new dimension names. "
-          " x.shape = %s tensor_layout=%s"
-          % (x.shape, tensor_layout))
+      print("Warning: Exported tensor is not fully replicated"
+            " x.shape = %s tensor_layout=%s"
+            % (x.shape, tensor_layout))
+      # raise NotImplementedError(
+      #     "SimdMeshImpl only supports export_to_tf_tensor of fully-replicated "
+      #     "Tensors.  Try reshaping to new dimension names. "
+      #     " x.shape = %s tensor_layout=%s"
+      #     % (x.shape, tensor_layout))
     return laid_out_x.one_slice
 
   def import_tf_tensor(self, x, tf_x):
