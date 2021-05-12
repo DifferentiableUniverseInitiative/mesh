@@ -2,16 +2,12 @@ from mpi4py import MPI
 import os
 # Pin only one GPU per horovod process
 comm = MPI.COMM_WORLD
-os.environ["CUDA_VISIBLE_DEVICES"]="%d"%(comm.rank+1) # This is specific to my machine
+#os.environ["CUDA_VISIBLE_DEVICES"]="%d"%(comm.rank+1) # This is specific to my machine
 
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 import mesh_tensorflow as mtf
 from mesh_tensorflow.hvd_simd_mesh_impl import HvdSimdMeshImpl
-
-
-# Check number of processes and rank
-# print("My rank is ", hvd.rank(), "out of ", hvd.size())
 
 # We create a small mesh
 graph = mtf.Graph()
