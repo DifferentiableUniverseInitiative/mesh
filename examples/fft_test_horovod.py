@@ -18,10 +18,16 @@ tf.flags.DEFINE_integer("gpus_per_node", 4, "Number of GPU on each node")
 tf.flags.DEFINE_integer("gpus_per_task", 4, "Number of GPU in each task")
 tf.flags.DEFINE_integer("tasks_per_node", 1, "Number of task in each node")
 tf.flags.DEFINE_integer("cube_size", 128, "Size of the 3D volume.")
-tf.flags.DEFINE_integer("batch_size", 8, "Mini-batch size for the training. Note that this"
+tf.flags.DEFINE_integer("hsize", 0, "halo size")
+tf.flags.DEFINE_integer("batch_size", 1, "Mini-batch size for the training. Note that this"
                         "is the global batch size and not the per-shard batch.")
-tf.flags.DEFINE_string("mesh_shape", "b1:16", "mesh shape")
-tf.flags.DEFINE_string("layout", "nx:b1,tny:b1", "layout rules")
+#tf.flags.DEFINE_string("mesh_shape", "b1:4,b2:4", "mesh shape")
+#tf.flags.DEFINE_string("layout", "nx:b1,tny:b1,ny:b2,tnz:b2", "layout rules")
+
+#mesh flags
+tf.flags.DEFINE_integer("nx", 4, "# blocks along x")
+tf.flags.DEFINE_integer("ny", 4, "# blocks along y")
+
 
 FLAGS = tf.flags.FLAGS
 
@@ -70,8 +76,14 @@ def benchmark_model(mesh):
 def main(_):
 
   # Defines the mesh structure
-  mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape) #mesh_shape = [ ("row", 1), ("col", 2)]
-  layout_rules = mtf.convert_to_layout_rules(FLAGS.layout) #layout_rules = [('ny_block', 'row'),  ("nx_block","col")]
+  #mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape) #mesh_shape = [ ("row", 1), ("col", 2)]
+  #layout_rules = mtf.convert_to_layout_rules(FLAGS.layout) #layout_rules = [('ny_block', 'row'),  ("nx_block","col")]
+
+  mesh_shape = [("row", FLAGS.nx), ("col", FLAGS.ny)]
+  mesh_shape = mtf.convert_to_shape(mesh_shape)
+  layout_rules = [("nx", "row"), ("ny", "col"), 
+                  ("tny", "row"), ("tnz", "col")]
+  layout_rules = mtf.convert_to_layout_rules(layout_rules)
 
   # Instantiate the mesh impl
   mesh_impl = HvdSimdMeshImpl(mesh_shape,layout_rules)
