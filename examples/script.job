@@ -30,5 +30,6 @@ set -x
 
 # execution du code avec binding via bind_gpu.sh : 1 GPU pour 1 tache MPI.
 
-srun --unbuffered --mpi=pmi2 python -u fft_test_horovod.py --mesh_shape="b1:2,b2:4" --layout="nx:b1,tny:b1,ny:b2,tnz:b2"
-
+#srun --unbuffered --mpi=pmi2 python -u fft_test_horovod.py --mesh_shape="b1:2,b2:4" --layout="nx:b1,tny:b1,ny:b2,tnz:b2"
+#srun --unbuffered --mpi=pmi2 python -u fft_test_horovod.py --mesh_shape="b1:2,b2:4" --layout="nx:b1,tny:b1,ny:b2,tnz:b2" --cube_size=128
+srun --unbuffered --mpi=pmi2 /gpfslocalsup/pub/idrtools/bind_gpu.sh  python -u fft_test_horovod.py --mesh_shape="b1:2,b2:4" --layout="nx:b1,tny:b1,ny:b2,tnz:b2" --cube_size=128

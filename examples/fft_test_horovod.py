@@ -9,7 +9,6 @@ from __future__ import print_function
 #os.environ["CUDA_VISIBLE_DEVICES"]="%d"%(comm.rank+1) # This is specific to my machine
 
 import tensorflow.compat.v1 as tf
-tf.disable_v2_behavior()
 import mesh_tensorflow as mtf
 import flowpm.mesh_ops as mpm
 from mesh_tensorflow.hvd_simd_mesh_impl import HvdSimdMeshImpl
@@ -18,7 +17,7 @@ from mesh_tensorflow.hvd_simd_mesh_impl import HvdSimdMeshImpl
 tf.flags.DEFINE_integer("gpus_per_node", 4, "Number of GPU on each node")
 tf.flags.DEFINE_integer("gpus_per_task", 4, "Number of GPU in each task")
 tf.flags.DEFINE_integer("tasks_per_node", 1, "Number of task in each node")
-tf.flags.DEFINE_integer("cube_size", 512, "Size of the 3D volume.")
+tf.flags.DEFINE_integer("cube_size", 128, "Size of the 3D volume.")
 tf.flags.DEFINE_integer("batch_size", 8, "Mini-batch size for the training. Note that this"
                         "is the global batch size and not the per-shard batch.")
 tf.flags.DEFINE_string("mesh_shape", "b1:16", "mesh shape")
@@ -74,9 +73,9 @@ def main(_):
   mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape) #mesh_shape = [ ("row", 1), ("col", 2)]
   layout_rules = mtf.convert_to_layout_rules(FLAGS.layout) #layout_rules = [('ny_block', 'row'),  ("nx_block","col")]
 
-  mesh_impl = HvdSimdMeshImpl(mtf.convert_to_shape(mesh_shape), 
-                              mtf.convert_to_layout_rules(layout_rules))
-  
+  # Instantiate the mesh impl
+  mesh_impl = HvdSimdMeshImpl(mesh_shape,layout_rules)
+ 
   # Create the mesh
   graph = mtf.Graph()
   mesh = mtf.Mesh(graph, "my_mesh")
