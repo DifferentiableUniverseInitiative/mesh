@@ -13,6 +13,8 @@ import mesh_tensorflow as mtf
 import flowpm.mesh_ops as mpm
 from mesh_tensorflow.hvd_simd_mesh_impl import HvdSimdMeshImpl
 
+from matplotlib import pyplot as plt
+
 # Options needed for the Device Placement Mesh Implementation
 tf.flags.DEFINE_integer("gpus_per_node", 4, "Number of GPU on each node")
 tf.flags.DEFINE_integer("gpus_per_task", 4, "Number of GPU in each task")
@@ -68,10 +70,13 @@ def benchmark_model(mesh):
 
   # Inverse FFT
   field = mpm.ifft3d(fft_field * 1, [x_dim, y_dim, z_dim])
-
+  
+  field = mtf.cast(field, tf.float32)
+  
   # Compute the residuals between inputs and outputs
-  err += mtf.reduce_sum(mtf.abs(mtf.cast(field, tf.float32) - input_field))
-  return err
+  err += mtf.reduce_sum(mtf.abs(field - input_field))
+  
+  return err, input_field, field
 
 def main(_):
 
@@ -93,16 +98,32 @@ def main(_):
   mesh = mtf.Mesh(graph, "my_mesh")
 
   # Build the model
-  fft_err = benchmark_model(mesh)
+  fft_err, input_field, output_field = benchmark_model(mesh)
   
   lowering = mtf.Lowering(graph, {mesh:mesh_impl})
 
   # Retrieve output of computation
   res = lowering.export_to_tf_tensor(fft_err)
+  in_field = lowering.export_to_tf_tensor(input_field)
+  out_field = lowering.export_to_tf_tensor(output_field)
 
   # Execute and retrieve result
   with tf.Session() as sess:
-    r = sess.run(res)
+    r, a, c = sess.run([res, in_field, out_field])
+
+    plt.figure(figsize=(9, 3))
+    plt.subplot(121)
+    plt.imshow(a[0].sum(axis=2))
+    plt.title('Initial Field')
+
+    plt.subplot(122)
+    plt.imshow(c[0].sum(axis=2))
+    plt.title('Forward-backward 3D FFT')
+    #plt.colorbar()
+    plt.savefig("mesh_nbody_%d-row:%d-col:%d.png" %
+              (FLAGS.cube_size, FLAGS.nx, FLAGS.ny))
+    plt.close()
+  exit(-1)
 
   print("Final result", r)
 
