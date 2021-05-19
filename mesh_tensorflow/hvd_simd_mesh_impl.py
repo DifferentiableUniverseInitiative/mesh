@@ -372,7 +372,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     #   t = tf.reshape(t, new_shape)
 
     # # Let's just make sure everybody got there.
-    # hvd.join()
+    hvd.join()
     return self.LaidOutTensor([t])
 
   def alltoall(self, x, mesh_axis, split_axis, concat_axis):
@@ -447,6 +447,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     #                      i if i > concat_axis else 0 \
     #                      for i in range(len(old_shape))])
     # print("Yo",old_shape, split_axis, concat_axis, t.shape)
+    hvd.join()
     x = self.LaidOutTensor([t])
     return x
 
@@ -537,6 +538,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     else:
       t = t[c % n]
     print("HEEELLOO")
+    hvd.join()
     return self.LaidOutTensor([t])
 
   def slice(self, tf_tensor, tensor_shape):

@@ -38,5 +38,5 @@ set -x
 
 #srun --unbuffered --mpi=pmi2 /gpfslocalsup/pub/idrtools/bind_gpu.sh  python -u fft_test_horovod.py --nx=2 --ny=2 --cube_size=128
 
-srun /gpfslocalsup/pub/idrtools/bind_gpu.sh  python -u fft_test_horovod.py --nx=2 --ny=2 --cube_size=32
+srun --unbuffered --mpi=pmi2 /gpfslocalsup/pub/idrtools/bind_gpu.sh  python -u fft_test_horovod.py --nx=2 --ny=2 --cube_size=32
 

@@ -1,14 +1,13 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+#from __future__ import absolute_import
+#from __future__ import division
+#from __future__ import print_function
 
-#from mpi4py import MPI
-#import os
-# Pin only one GPU per horovod process
-#comm = MPI.COMM_WORLD
-#os.environ["CUDA_VISIBLE_DEVICES"]="%d"%(comm.rank+1) # This is specific to my machine
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
 
 import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
+
 import mesh_tensorflow as mtf
 import flowpm.mesh_ops as mpm
 from mesh_tensorflow.hvd_simd_mesh_impl import HvdSimdMeshImpl
@@ -85,6 +84,7 @@ def benchmark_model(mesh):
   final_field = mtf.cast(field, tf.float32)
   
   # Compute the residuals between inputs and outputs
+
   err += mtf.reduce_sum(mtf.abs(final_field - input_field))
  
   ret_initc = mtf.reshape(input_field, [batch_dim, ffx_dim, ffy_dim, ffz_dim])
@@ -135,26 +135,27 @@ def main(_):
   with tf.Session() as sess:
     r, a, c = sess.run([res, in_field, out_field])
     
-  print('')
-  print('shape of the cube', a.shape)
-  print('')
-  plt.figure(figsize=(9, 3))
-  plt.subplot(121)
-  plt.imshow(a[0].sum(axis=2))
-  plt.title('Initial Field')
+  if comm.rank == 0: 
+    print('')
+    print('shape of the cube', a.shape)
+    print('')
+    plt.figure(figsize=(9, 3))
+    plt.subplot(121)
+    plt.imshow(a[0].sum(axis=2))
+    plt.title('Initial Field')
 
-  plt.subplot(122)
-  plt.imshow(c[0].sum(axis=2))
-  plt.title('Forward-backward 3D FFT')
-  #plt.colorbar()
-  plt.savefig("mesh_nbody_%d-row:%d-col:%d.png" %
+    plt.subplot(122)
+    plt.imshow(c[0].sum(axis=2))
+    plt.title('Forward-backward 3D FFT')
+    #plt.colorbar()
+    plt.savefig("mesh_nbody_%d-row:%d-col:%d.png" %
              (FLAGS.cube_size, FLAGS.nx, FLAGS.ny))
-  plt.close()
+    plt.close()
   exit(-1)
 
   print("Final result", r)
 
 if __name__ == "__main__":
-  tf.disable_v2_behavior()
+  #tf.disable_v2_behavior()
   tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()
