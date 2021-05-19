@@ -56,9 +56,20 @@ def benchmark_model(mesh):
   ty_dim = mtf.Dimension("tny", FLAGS.cube_size)
   tz_dim = mtf.Dimension("tnz", FLAGS.cube_size)
 
+  ffx_dim = mtf.Dimension("fnx", FLAGS.cube_size)
+  ffy_dim = mtf.Dimension("fny", FLAGS.cube_size)
+  ffz_dim = mtf.Dimension("fnz", FLAGS.cube_size)
+ 
   # Create field
   field = mtf.random_normal(mesh, [batch_dim, x_dim, y_dim, z_dim])
-
+  """
+  print('x_dim', x_dim)
+  print('y_dim', y_dim)
+  print('z_dim', z_dim)
+  print('tx_dim', x_dim)
+  print('ty_dim', y_dim)
+  print('tz_dim', z_dim)
+  """
   input_field = field
   field = mtf.cast(field, tf.complex64)
   err = 0
@@ -71,12 +82,17 @@ def benchmark_model(mesh):
   # Inverse FFT
   field = mpm.ifft3d(fft_field * 1, [x_dim, y_dim, z_dim])
   
-  field = mtf.cast(field, tf.float32)
+  final_field = mtf.cast(field, tf.float32)
   
   # Compute the residuals between inputs and outputs
-  err += mtf.reduce_sum(mtf.abs(field - input_field))
-  
-  return err, input_field, field
+  err += mtf.reduce_sum(mtf.abs(final_field - input_field))
+ 
+  ret_initc = mtf.reshape(input_field, [batch_dim, ffx_dim, ffy_dim, ffz_dim])
+  ret_fifn = mtf.reshape(final_field, [batch_dim, ffx_dim, ffy_dim, ffz_dim])
+  #ret_initc = input_field
+  #ret_fifn = final_field
+  print(ret_initc.shape) 
+  return err, ret_initc, ret_fifn
 
 def main(_):
 
@@ -90,6 +106,8 @@ def main(_):
                   ("tny", "row"), ("tnz", "col")]
   layout_rules = mtf.convert_to_layout_rules(layout_rules)
 
+  print('mesh + rules')
+
   # Instantiate the mesh impl
   mesh_impl = HvdSimdMeshImpl(mesh_shape,layout_rules)
  
@@ -100,29 +118,38 @@ def main(_):
   # Build the model
   fft_err, input_field, output_field = benchmark_model(mesh)
   
+  print('benchmark model')
+
   lowering = mtf.Lowering(graph, {mesh:mesh_impl})
 
   # Retrieve output of computation
   res = lowering.export_to_tf_tensor(fft_err)
+  print('res')
   in_field = lowering.export_to_tf_tensor(input_field)
+  print('in')
   out_field = lowering.export_to_tf_tensor(output_field)
-
+  print('out')
+  print(out_field.shape)
+  
   # Execute and retrieve result
   with tf.Session() as sess:
     r, a, c = sess.run([res, in_field, out_field])
+    
+  print('')
+  print('shape of the cube', a.shape)
+  print('')
+  plt.figure(figsize=(9, 3))
+  plt.subplot(121)
+  plt.imshow(a[0].sum(axis=2))
+  plt.title('Initial Field')
 
-    plt.figure(figsize=(9, 3))
-    plt.subplot(121)
-    plt.imshow(a[0].sum(axis=2))
-    plt.title('Initial Field')
-
-    plt.subplot(122)
-    plt.imshow(c[0].sum(axis=2))
-    plt.title('Forward-backward 3D FFT')
-    #plt.colorbar()
-    plt.savefig("mesh_nbody_%d-row:%d-col:%d.png" %
-              (FLAGS.cube_size, FLAGS.nx, FLAGS.ny))
-    plt.close()
+  plt.subplot(122)
+  plt.imshow(c[0].sum(axis=2))
+  plt.title('Forward-backward 3D FFT')
+  #plt.colorbar()
+  plt.savefig("mesh_nbody_%d-row:%d-col:%d.png" %
+             (FLAGS.cube_size, FLAGS.nx, FLAGS.ny))
+  plt.close()
   exit(-1)
 
   print("Final result", r)
