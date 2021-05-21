@@ -593,6 +593,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     """
     # TODO(noam): can we make things better with stateless_random?
     slice_shape = self.slice_shape(shape)
+    """
     x = tf_fn(slice_shape, **kwargs)
     # TPU does not have seeds enabled.  Sync up the
     # random choices by zeroing out all but the first core per group of
@@ -609,6 +610,17 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     x = self.LaidOutTensor([x])
     x = self.allreduce(x, mesh_axes, "SUM")
     return x
+    """
+    # spit the seed along the slices
+    slice_shape = self.slice_shape(shape)
+    if 'seed' in kwargs.keys():
+      kwargs['seed'] += hvd.rank()
+
+    #if hvd.rank()==0:
+    x = tf_fn(slice_shape, **kwargs)
+    x = self.LaidOutTensor([x])
+    return x
+
 
   def export_to_tf_tensor(self, x, laid_out_x):
     """Turn a Tensor into a tf.Tensor.
