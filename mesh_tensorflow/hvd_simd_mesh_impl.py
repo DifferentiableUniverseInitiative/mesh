@@ -407,7 +407,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     # The all2all should preserve the shape of the tensor, so we manually
     # reshape the tensor after all2all
     s = t.shape.as_list()
-    n = hvd.size(process_set=self._comms_id[name_dim])
+    n = len(hvd.get_process_sets()[self._comms_id[name_dim]])
     # Now we apply an all2all on this first dimension
     t = hvd.alltoall(t, process_set=self._comms_id[name_dim])
     t = tf.reshape(t, [n, s[0]//n]+ s[1:])
