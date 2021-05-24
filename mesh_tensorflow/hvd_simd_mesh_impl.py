@@ -47,12 +47,16 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     tf.logging.info("HvdSimdMeshImpl init: {0} {1}".format(shape, layout))
 
     # Initializing communicators
-    comms, comms_id = self._create_communicators(shape)
+    comms = self._create_communicators(shape)
     self._comms = comms
-    self._comms_id = comms_id
 
     # And initializing horovod with our set of communicators
     hvd.init(comm=[c for _, c in comms.items()])
+
+    # Once horovod is initialized, retrieve process subsets ids
+    self._comms_id = collections.OrderedDict()
+    for k,c in comms.items():
+      self._comms_id[k] = hvd.comm_process_set(c)
     
     self.graph_device_function_stacks = []
     self.copy_master_to_slice_ops = []
@@ -65,16 +69,13 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     cart_comm = MPI.COMM_WORLD.Create_cart(dims=dims,
                                            periods=[False]*len(dims))
     communicators = collections.OrderedDict()
-    communicators_id = collections.OrderedDict()
     communicators["world"] = cart_comm
-    communicators_id["world"] = 0
     # Extract one sub communicator per dimension
     for i,s in enumerate(mesh_shape):
         remain_dims = [False]*len(dims)
         remain_dims[i] = True
         communicators[s.name] = cart_comm.Sub(remain_dims)
-        communicators_id[s.name] = i+1
-    return communicators, communicators_id
+    return communicators
 
   class LaidOutTensor(object):
     """One Slice."""
@@ -298,7 +299,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     # Performing reduce operation for all axes
     for mesh_axis in mesh_axes:
       s = self.shape[mesh_axis]
-      t = hvd._allreduce(t, communicator_id=self._comms_id[s.name])
+      t = hvd._allreduce(t, process_set=self._comms_id[s.name])
 
     if is_complex:
       t = tf.complex(t[...,0], t[...,1])
@@ -341,7 +342,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     if is_complex:
       t = tf.stack([tf.math.real(t), tf.math.imag(t)], axis=-1)
 
-    t = hvd.allgather(t, communicator_id=self._comms_id[name_dim])
+    t = hvd.allgather(t, process_set=self._comms_id[name_dim])
 
     if is_complex:
       t = tf.complex(t[...,0], t[...,1])
@@ -406,9 +407,9 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     # The all2all should preserve the shape of the tensor, so we manually
     # reshape the tensor after all2all
     s = t.shape.as_list()
-    n = hvd.size(communicator_id=self._comms_id[name_dim])
+    n = hvd.size(process_set=self._comms_id[name_dim])
     # Now we apply an all2all on this first dimension
-    t = hvd.alltoall(t, communicator_id=self._comms_id[name_dim])
+    t = hvd.alltoall(t, process_set=self._comms_id[name_dim])
     t = tf.reshape(t, [n, s[0]//n]+ s[1:])
     
     if is_complex:
@@ -525,13 +526,13 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     if is_complex:
       t = tf.stack([tf.math.real(t), tf.math.imag(t)], axis=-1)
 
-    t = hvd.allgather(t, communicator_id=self._comms_id[name_dim])
+    t = hvd.allgather(t, process_set=self._comms_id[name_dim])
 
     if is_complex:
       t = tf.complex(t[...,0], t[...,1])    
 
     # and....we only need to keep one slice... but which one...
-    c = hvd.rank(communicator_id=self._comms_id[name_dim]) + offset
+    c = hvd.rank(process_set=self._comms_id[name_dim]) + offset
     if ((c >= n) or (c <0)) and (not wrap):
       t = tf.zeros_like(x.one_slice)
     else:
@@ -549,7 +550,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
       slice_shape = self.slice_shape(tensor_shape)
       print(slice_shape)
       slice_begins = [
-          0 if mesh_axis is None else hvd.rank(communicator_id=self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
+          0 if mesh_axis is None else hvd.rank(process_set=self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
           for i,mesh_axis in enumerate(tensor_layout)
           ]
       print(slice_begins)
