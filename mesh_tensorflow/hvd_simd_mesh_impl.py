@@ -314,7 +314,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
       x: a LaidOutTensor
       mesh_axis: an integer - the mesh axis along which to group
       concat_axis: an integer (the Tensor axis along which to concatenate)
-      stack: a boolean - whether to stack instead of concat
+      stack: a boolean - whether to atack instead of concat
     Returns:
       a LaidOutTensor
     """
@@ -586,14 +586,15 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     Args:
       shape: a Shape
       tf_fn: a function such as tf.random.uniform
-      kwargs: kwargs to pass to tf_fn, except for seed
+      kwargs: kwargs to pass to tf_fn, including the seed
 
     Returns:
       a LaidOutTensor
     """
-    # TODO(noam): can we make things better with stateless_random?
-    slice_shape = self.slice_shape(shape)
     """
+    # Old implementation
+    slice_shape = self.slice_shape(shape)
+
     x = tf_fn(slice_shape, **kwargs)
     # TPU does not have seeds enabled.  Sync up the
     # random choices by zeroing out all but the first core per group of
@@ -611,16 +612,48 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     x = self.allreduce(x, mesh_axes, "SUM")
     return x
     """
-    # spit the seed along the slices
+    # Tobi-doc
+    # kwargs['seed'] is the original seed.
+    # If we don't distribute we use that same seed for all the random variables
+    # If we distribute a big tensor we need to change the seed.
+    # Dependign on the mesh, the tensor dimensions, and how we are distribting them we need to generate a set of seeds for each
+    # GPU. These seeds might need to be identical or different as a function of the distribution strategy.
+    
     slice_shape = self.slice_shape(shape)
-    if 'seed' in kwargs.keys():
-      kwargs['seed'] += hvd.rank()
+    # Get the biggest dimension to be sure that the seeds are different when they are supposed to be different.
+    max_dim = np.max(slice_shape)
+    # To check if the tensors are fully replicated and then to check on which dimensions they are disbributed.
+    tensor_layout = self.tensor_layout(shape)
+   
+    if self.tensor_layout(shape).is_fully_replicated:
+        # Same seed for everyone
+        x = tf_fn(slice_shape, **kwargs)
+        return self.LaidOutTensor([x])
+    
+    else:
+        # We need difference seeds.
+        slice_begins = [
+          0 if mesh_axis is None else hvd.rank(communicator_id=self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
+          for i,mesh_axis in enumerate(tensor_layout)
+          ]
+        #  print('slice_begins: ', slice_begins, ', hvd.rank(): ', hvd.rank())
 
-    #if hvd.rank()==0:
-    x = tf_fn(slice_shape, **kwargs)
-    x = self.LaidOutTensor([x])
-    return x
+        my_seed = np.sum([0 if dim_id==0 else it*max_dim+dim_id  for it, dim_id in enumerate(slice_begins)])
+        # print('hvd.rank(): ', hvd.rank(), ', my_seed: ', my_seed)
 
+        if 'seed' in kwargs.keys():
+          kwargs['seed'] += my_seed
+          # print("kwargs['seed']", kwargs['seed'])
+        else:
+          print('WARNING! Setting default seed to 0.')
+          kwargs['seed'] = 0
+          kwargs['seed'] += my_seed
+          # print("kwargs['seed']", kwargs['seed'])
+
+ 
+        x = tf_fn(slice_shape, **kwargs)
+        return self.LaidOutTensor([x])
+    
 
   def export_to_tf_tensor(self, x, laid_out_x):
     """Turn a Tensor into a tf.Tensor.
