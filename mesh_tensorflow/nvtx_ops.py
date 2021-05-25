@@ -10,25 +10,27 @@ import nvtx.plugins.tf as nvtx_tf
 
 class NVTXOperation(mtf.Operation):
   """Mesh implementation of nvtx tracers"""
-  def __init__(self, x, name=None):
+  def __init__(self, x, message=None, domain_name=None, name=None):
     super(NVTXOperation, self).__init__([x], x.mesh, name=name or "nvtx")
     self._outputs = [
         mtf.Tensor(self, x.shape, x.dtype)
     ]
+    self.message = message
+    self.domain_name = domain_name
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self) 
 
-    x = lowering.tensors[self.inputs[0]].LaidOutTensor
+    x = lowering.tensors[self.inputs[0]]
     
-    # have it go through NVTX
-    x, nvtx_context = nvtx_tf.ops.start(x, message='Dense 1',
-        grad_message='Dense 1 grad', domain_name='Forward')
+    def _tf_fn(x):
+        x, nvtx_context = nvtx_tf.ops.start(x, message=self.message,
+                                            domain_name=self.domain_name)
+        x = nvtx_tf.ops.end(x, nvtx_context)       
+        return x
+    value = mesh_impl.slicewise(_tf_fn, x)
+    lowering.set_tensor_lowering(self.outputs[0], value)
 
-    x = nvtx_tf.ops.end(x, nvtx_context)
-    
-    lowering.set_tensor_lowering(self.outputs[0], x)
 
-
-def add_nvtx(x, name=None):
-  return NVTXOperation(x, name).outputs[0]
+def add_nvtx(x, message=None, domain_name=None,  name=None):
+  return NVTXOperation(x, message, domain_name, name).outputs[0]
