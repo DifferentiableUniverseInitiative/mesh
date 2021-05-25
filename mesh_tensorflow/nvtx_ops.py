@@ -18,13 +18,15 @@ class NVTXOperation(mtf.Operation):
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self) 
-    x = self.inputs[0]
 
+    x = lowering.tensors[self.inputs[0]]
+    
     # have it go through NVTX
     x, nvtx_context = nvtx_tf.ops.start(x, message='Dense 1',
         grad_message='Dense 1 grad', domain_name='Forward')
 
     x = nvtx_tf.ops.end(x, nvtx_context)
+    
     lowering.set_tensor_lowering(self.outputs[0], x)
 
 
