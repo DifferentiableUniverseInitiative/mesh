@@ -19,7 +19,7 @@ class NVTXOperation(mtf.Operation):
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self) 
 
-    x = lowering.tensors[self.inputs[0]]
+    x = lowering.tensors[self.inputs[0]].LaidOutTensor
     
     # have it go through NVTX
     x, nvtx_context = nvtx_tf.ops.start(x, message='Dense 1',
