@@ -537,7 +537,8 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
 
     # and....we only need to keep one slice... but which one...
     # c = hvd.rank(process_set=self._comms_id[name_dim]) + offset
-    c = self._comms[self.shape[mesh_axis].name].Get_rank() + offset
+    #self._comms[self.shape[mesh_axis].name].Get_rank() + offset
+    c = hvd.process_set_rank(self._comms_id[self.shape[mesh_axis].name])  + offset 
     if ((c >= n) or (c <0)) and (not wrap):
       t = tf.zeros_like(x.one_slice)
     else:
@@ -551,7 +552,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     slice_shape = self.slice_shape(tensor_shape)
     print("SLICE BEGIIN")
     slice_begins = [
-      0 if mesh_axis is None else self._comms[self.shape[mesh_axis].name].Get_rank()*slice_shape[i]
+      0 if mesh_axis is None else hvd.process_set_rank(self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
       for i,mesh_axis in enumerate(tensor_layout)
       ]
     return slice_begins
