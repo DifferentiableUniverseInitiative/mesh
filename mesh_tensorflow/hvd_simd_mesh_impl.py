@@ -538,7 +538,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     # and....we only need to keep one slice... but which one...
     # c = hvd.rank(process_set=self._comms_id[name_dim]) + offset
     #self._comms[self.shape[mesh_axis].name].Get_rank() + offset
-    c = hvd.process_set_rank(self._comms_id[self.shape[mesh_axis].name])  + offset 
+    c = hvd.process_set_rank(self._comms_id[self.shape[mesh_axis].name]) - offset 
     if ((c >= n) or (c <0)) and (not wrap):
       t = tf.zeros_like(x.one_slice)
     else:
