@@ -21,8 +21,10 @@ from __future__ import print_function
 
 import math
 import os
+import random
 import collections
 import numpy as np
+
 from mesh_tensorflow import ops_with_redefined_builtins as mtf
 from mesh_tensorflow import utils
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -541,27 +543,29 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     print("HEEELLOO")
     return self.LaidOutTensor([t])
 
+  def slice_begin(self, tensor_shape):
+    """Variant of slice begin for SIMD"""
+    tensor_layout = self.tensor_layout(tensor_shape)
+    slice_shape = self.slice_shape(tensor_shape)
+
+    slice_begins = [
+      0 if mesh_axis is None else hvd.rank(communicator_id=self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
+      for i,mesh_axis in enumerate(tensor_layout)
+      ]
+    return slice_begins
+
   def slice(self, tf_tensor, tensor_shape):
     """"Slice out the corresponding part of tensor."""
     tensor_layout = self.tensor_layout(tensor_shape)
-    # print('tensor_layout: ', tensor_layout)
+
     if tensor_layout.is_fully_replicated:
       return self.LaidOutTensor([tf_tensor])
     else:
       slice_shape = self.slice_shape(tensor_shape)
-      # print('slice_shape: ', slice_shape)
-      slice_begins = [
-          0 if mesh_axis is None else hvd.rank(communicator_id=self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
-          for i,mesh_axis in enumerate(tensor_layout)
-          ]
       
-      print('hvd.rank(): ', hvd.rank(), ', tf.shape(tf_tensor): ', tf.shape(tf_tensor), ', slice_begins: ', slice_begins, ', slice_shape: ', slice_shape)
-      
+      slice_begins = self.slice_begin(tensor_shape)
       slice_begins_tensor = tf.stack(slice_begins)
-      # print('slice_begins_tensor: ', slice_begins_tensor)
-      # # slice on source device
-      # selected_slice_begin = tf.gather(slice_begins_tensor, self.pnum_tensor)
-      # print(selected_slice_begin, slice_shape, self.pnum_tensor )
+
       return self.LaidOutTensor(
           [tf.slice(tf_tensor, slice_begins_tensor, slice_shape)])
 
