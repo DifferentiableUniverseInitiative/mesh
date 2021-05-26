@@ -21,8 +21,10 @@ from __future__ import print_function
 
 import math
 import os
+import random
 import collections
 import numpy as np
+
 from mesh_tensorflow import ops_with_redefined_builtins as mtf
 from mesh_tensorflow import utils
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -324,7 +326,9 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     num_parts = self.shape[mesh_axis].size
     name_dim  = self.shape[mesh_axis].name
 
-    print('CONCAT', stack)
+    # TODO [TL]
+    # print('inside allconcat, CONCAT', stack)
+    # print('hvd.rank(): ',hvd.rank(), ', old_shape: ', old_shape, ', num_parts: ', num_parts, ', name_dim: ', name_dim)
 
     # Moving axis to concatenate at the top
     perm = [concat_axis] + [i for i in range(len(old_shape)) if i not in [concat_axis]]
@@ -539,24 +543,32 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     print("HEEELLOO")
     return self.LaidOutTensor([t])
 
+  def slice_begin(self, tensor_shape):
+    """Variant of slice begin for SIMD"""
+    tensor_layout = self.tensor_layout(tensor_shape)
+    slice_shape = self.slice_shape(tensor_shape)
+
+    slice_begins = [
+      0 if mesh_axis is None else hvd.rank(communicator_id=self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
+      for i,mesh_axis in enumerate(tensor_layout)
+      ]
+    return slice_begins
+
   def slice(self, tf_tensor, tensor_shape):
     """"Slice out the corresponding part of tensor."""
     tensor_layout = self.tensor_layout(tensor_shape)
-    print(tensor_layout)
+
     if tensor_layout.is_fully_replicated:
       return self.LaidOutTensor([tf_tensor])
     else:
       slice_shape = self.slice_shape(tensor_shape)
-      print(slice_shape)
-      slice_begins = [
-          0 if mesh_axis is None else hvd.rank(communicator_id=self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
-          for i,mesh_axis in enumerate(tensor_layout)
-          ]
-      print(slice_begins)
+    
+      
+      slice_begins = self.slice_begin(tensor_shape)
+      
+      print('slice_begins: ', slice_begins)
       slice_begins_tensor = tf.stack(slice_begins)
-      # # slice on source device
-      # selected_slice_begin = tf.gather(slice_begins_tensor, self.pnum_tensor)
-      # print(selected_slice_begin, slice_shape, self.pnum_tensor )
+
       return self.LaidOutTensor(
           [tf.slice(tf_tensor, slice_begins_tensor, slice_shape)])
 
@@ -586,29 +598,81 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     Args:
       shape: a Shape
       tf_fn: a function such as tf.random.uniform
-      kwargs: kwargs to pass to tf_fn, except for seed
+      kwargs: kwargs to pass to tf_fn, including or not the seed
 
     Returns:
       a LaidOutTensor
     """
-    # TODO(noam): can we make things better with stateless_random?
+    # Tobi-doc
+    # kwargs['seed'] is the original seed.
+    # If we don't distribute we use that same seed for all the random variables
+    # If we distribute a big tensor we need to change the seed.
+    # Depending on the mesh, the tensor dimensions, and how we are distribting them we need to generate a set of seeds for each
+    # GPU. These seeds might need to be identical or different as a function of the distribution strategy.
+   
     slice_shape = self.slice_shape(shape)
-    x = tf_fn(slice_shape, **kwargs)
-    # TPU does not have seeds enabled.  Sync up the
-    # random choices by zeroing out all but the first core per group of
-    # identical slices, then allreducing by group.
-    layout = self.tensor_layout(shape)
-    # we need to sync across these axes.
-    mesh_axes = [i for i in xrange(self.ndims)
-                 if i not in layout.tensor_axis_to_mesh_axis]
-    multiplier = 1.0
-    for axis in mesh_axes:
-      multiplier *= tf.cast(
-          tf.equal(self.laid_out_pcoord(axis).one_slice, 0), x.dtype)
-    x *= multiplier
-    x = self.LaidOutTensor([x])
-    x = self.allreduce(x, mesh_axes, "SUM")
-    return x
+
+    # Get the common seed to all processes
+    if 'seed' in kwargs:
+        # Use the defined input seed if specified
+        op_seed = kwargs.pop('seed')
+    else:
+        # Generate a random seed and broadcast it among all the processes with the MPI communicaiton
+        op_seed = random.random()
+        # WARNING! Using MPI world communicator. All processes should be involved in this operation.
+        op_seed = self._comms['world'].bcast(op_seed, root=0)
+    
+    # Create process-specific seed shifts
+    max_dim = np.max(slice_shape)
+    my_slice_begins = self.slice_begin(shape)
+    seed = np.sum([0 if dim_id==0 else it*max_dim+dim_id  for it, dim_id in enumerate(my_slice_begins)])
+
+    # Join the common seed and process-specific seed shifts
+    seed += op_seed
+
+    # seeds are necessary to make sure that slices that should have the
+    # same values actually do have the same values.
+    # Alternative implementation -> Needs to have a fixed hash function across different processes
+    # seed = hash("%s,%s" % (op_seed, self.slice_begin(shape)))
+    
+    return self.LaidOutTensor([tf_fn(slice_shape, seed=seed, **kwargs)])
+
+    """
+    slice_shape = self.slice_shape(shape)
+    # Get the biggest dimension to be sure that the seeds are different when they are supposed to be different.
+    max_dim = np.max(slice_shape)
+    # To check if the tensors are fully replicated and then to check on which dimensions they are disbributed.
+    tensor_layout = self.tensor_layout(shape)
+   
+    if self.tensor_layout(shape).is_fully_replicated:
+        # Same seed for everyone
+        x = tf_fn(slice_shape, **kwargs)
+        return self.LaidOutTensor([x])
+    
+    else:
+        # We need difference seeds.
+        slice_begins = [
+          0 if mesh_axis is None else hvd.rank(communicator_id=self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
+          for i,mesh_axis in enumerate(tensor_layout)
+          ]
+        #  print('slice_begins: ', slice_begins, ', hvd.rank(): ', hvd.rank())
+
+        my_seed = np.sum([0 if dim_id==0 else it*max_dim+dim_id  for it, dim_id in enumerate(slice_begins)])
+        # print('hvd.rank(): ', hvd.rank(), ', my_seed: ', my_seed)
+
+        if 'seed' in kwargs.keys():
+          kwargs['seed'] += my_seed
+          # print("kwargs['seed']", kwargs['seed'])
+        else:
+          print('WARNING! Setting default seed to 0.')
+          kwargs['seed'] = 0
+          kwargs['seed'] += my_seed
+          # print("kwargs['seed']", kwargs['seed'])
+
+ 
+        x = tf_fn(slice_shape, **kwargs)
+        return self.LaidOutTensor([x])
+    """
 
   def export_to_tf_tensor(self, x, laid_out_x):
     """Turn a Tensor into a tf.Tensor.
