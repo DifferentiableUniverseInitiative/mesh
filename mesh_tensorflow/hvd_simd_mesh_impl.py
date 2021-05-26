@@ -549,9 +549,9 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     """Variant of slice begin for SIMD"""
     tensor_layout = self.tensor_layout(tensor_shape)
     slice_shape = self.slice_shape(tensor_shape)
-
+    print("SLICE BEGIIN")
     slice_begins = [
-      0 if mesh_axis is None else hvd.rank(communicator_id=self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
+      0 if mesh_axis is None else self._comms[self.shape[mesh_axis].name].Get_rank()*slice_shape[i]
       for i,mesh_axis in enumerate(tensor_layout)
       ]
     return slice_begins
