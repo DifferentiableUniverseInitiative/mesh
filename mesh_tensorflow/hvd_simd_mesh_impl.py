@@ -324,7 +324,9 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     num_parts = self.shape[mesh_axis].size
     name_dim  = self.shape[mesh_axis].name
 
-    print('CONCAT', stack)
+    # TODO [TL]
+    # print('inside allconcat, CONCAT', stack)
+    # print('hvd.rank(): ',hvd.rank(), ', old_shape: ', old_shape, ', num_parts: ', num_parts, ', name_dim: ', name_dim)
 
     # Moving axis to concatenate at the top
     perm = [concat_axis] + [i for i in range(len(old_shape)) if i not in [concat_axis]]
@@ -542,18 +544,21 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
   def slice(self, tf_tensor, tensor_shape):
     """"Slice out the corresponding part of tensor."""
     tensor_layout = self.tensor_layout(tensor_shape)
-    print(tensor_layout)
+    # print('tensor_layout: ', tensor_layout)
     if tensor_layout.is_fully_replicated:
       return self.LaidOutTensor([tf_tensor])
     else:
       slice_shape = self.slice_shape(tensor_shape)
-      print(slice_shape)
+      # print('slice_shape: ', slice_shape)
       slice_begins = [
           0 if mesh_axis is None else hvd.rank(communicator_id=self._comms_id[self.shape[mesh_axis].name])*slice_shape[i]
           for i,mesh_axis in enumerate(tensor_layout)
           ]
-      print(slice_begins)
+      
+      print('hvd.rank(): ', hvd.rank(), ', tf.shape(tf_tensor): ', tf.shape(tf_tensor), ', slice_begins: ', slice_begins, ', slice_shape: ', slice_shape)
+      
       slice_begins_tensor = tf.stack(slice_begins)
+      # print('slice_begins_tensor: ', slice_begins_tensor)
       # # slice on source device
       # selected_slice_begin = tf.gather(slice_begins_tensor, self.pnum_tensor)
       # print(selected_slice_begin, slice_shape, self.pnum_tensor )
