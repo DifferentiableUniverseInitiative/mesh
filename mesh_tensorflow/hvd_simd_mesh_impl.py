@@ -22,6 +22,7 @@ from __future__ import print_function
 import math
 import os
 import random
+import zlib
 import collections
 import numpy as np
 
@@ -623,19 +624,22 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
         # WARNING! Using MPI world communicator. All processes should be involved in this operation.
         op_seed = self._comms['world'].bcast(op_seed, root=0)
     
+    """ OLD IMPLEMENTATION
     # Create process-specific seed shifts
     max_dim = np.max(slice_shape)
     my_slice_begins = self.slice_begin(shape)
     seed = np.sum([0 if dim_id==0 else it*max_dim+dim_id  for it, dim_id in enumerate(my_slice_begins)])
-
+    
     # Join the common seed and process-specific seed shifts
     seed += op_seed
+    """
 
     # seeds are necessary to make sure that slices that should have the
     # same values actually do have the same values.
     # Alternative implementation -> Needs to have a fixed hash function across different processes
-    # seed = hash("%s,%s" % (op_seed, self.slice_begin(shape)))
-    
+    # Fixed hash -> zlib.adler32()
+    seed = zlib.adler32(("%s,%s" % (op_seed, self.slice_begin(shape))).encode(encoding="utf-8") )
+
     return self.LaidOutTensor([tf_fn(slice_shape, seed=seed, **kwargs)])
 
     """
