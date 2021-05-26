@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --reservation=hackathon_idr25
+#SBATCH --reservation=hackathon_idr26
 #SBATCH --job-name=test_horovod      # nom du job
 ##SBATCH --partition=gpu_p2          # de-commente pour la partition gpu_p2
-#SBATCH --ntasks=1                   # nombre total de tache MPI (= nombre total de GPU)
-#SBATCH --ntasks-per-node=1          # nombre de tache MPI par noeud (= nombre de GPU par noeud)
-#SBATCH --gres=gpu:1                 # nombre de GPU par nœud (max 8 avec gpu_p2)
+#SBATCH --ntasks=4                   # nombre total de tache MPI (= nombre total de GPU)
+#SBATCH --ntasks-per-node=4          # nombre de tache MPI par noeud (= nombre de GPU par noeud)
+#SBATCH --gres=gpu:4                 # nombre de GPU par nœud (max 8 avec gpu_p2)
 #SBATCH --cpus-per-task=10           # nombre de coeurs CPU par tache (un quart du noeud ici)
 ##SBATCH --cpus-per-task=3           # nombre de coeurs CPU par tache (pour gpu_p2 : 1/8 du noeud)
 # /!\ Attention, "multithread" fait reference a l'hyperthreading dans la terminologie Slurm
@@ -39,4 +39,4 @@ set -x
 
 #srun --unbuffered --mpi=pmi2 /gpfslocalsup/pub/idrtools/bind_gpu.sh  python -u fft_test_horovod.py --nx=2 --ny=2 --cube_size=128
 
-srun --unbuffered --mpi=pmi2 /gpfslocalsup/pub/idrtools/bind_gpu.sh  python -u reshape_test_horovod.py --nx=1 --ny=1 --cube_size=32
+srun --unbuffered --mpi=pmi2 /gpfslocalsup/pub/idrtools/bind_gpu.sh  python -u reshape_test_horovod.py --nx=4 --ny=1 --cube_size=32

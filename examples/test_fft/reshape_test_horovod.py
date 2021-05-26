@@ -133,13 +133,13 @@ def main(_):
   #print('in')
   out_field = lowering.export_to_tf_tensor(output_field)
   print('out')
-  print(out_field.shape)
+  print('outfield shape', out_field.shape)
   
   # Execute and retrieve result
   with tf.Session() as sess:
     #r, a, c = sess.run([res, in_field, out_field])
     a, c = sess.run([in_field, out_field])
-  if comm.rank == 0: 
+  if comm.rank == 1: 
     print('')
     print('shape of the cube', a.shape)
     print('')
@@ -162,7 +162,7 @@ def main(_):
     plt.close()
   exit(-1)
 
-  print("Final result", r)
+  #print("Final result", r)
 
 if __name__ == "__main__":
   #tf.disable_v2_behavior()
