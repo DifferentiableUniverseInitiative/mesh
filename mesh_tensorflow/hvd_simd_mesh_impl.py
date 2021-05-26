@@ -316,7 +316,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
       x: a LaidOutTensor
       mesh_axis: an integer - the mesh axis along which to group
       concat_axis: an integer (the Tensor axis along which to concatenate)
-      stack: a boolean - whether to atack instead of concat
+      stack: a boolean - whether to stack instead of concat
     Returns:
       a LaidOutTensor
     """
