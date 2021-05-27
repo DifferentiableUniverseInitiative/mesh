@@ -35,12 +35,15 @@ def model_fn(nc=64, batch_size=1):
     sy_dim = mtf.Dimension('sy_block', nc//n_block_y)
     sz_dim = mtf.Dimension('sz_block', nc//n_block_z)
     image_c_dim = mtf.Dimension('image_c', 3)
-    hidden_dim  = mtf.Dimension('h', 128)
+    hidden_dim  = mtf.Dimension('h', 1)
+
     # Create some input data
     data = mtf.random_uniform(mesh, [batch_dim, nx_dim, ny_dim, nz_dim,
                                                 sx_dim, sy_dim, sz_dim,
                                                 image_c_dim])
 
+    #net = mtf.layers.conv3d(data, hidden_dim,
+    #    filter_size=(3, 3, 3), strides=(1, 1, 1), padding='SAME')
     net = mtf.layers.dense(data, hidden_dim)     
 
     """
@@ -49,7 +52,7 @@ def model_fn(nc=64, batch_size=1):
         d_blocks_dim=nx_dim, h_blocks_dim=ny_dim)
     """
 
-    net = mtf.reduce_sum(net, output_shape=[batch_dim, hidden_dim] )
+    net = mtf.reduce_sum((net-1)*(net-1), output_shape=[batch_dim, hidden_dim] )
     return net
 
 
@@ -90,12 +93,26 @@ def main(_):
     result = lowering.export_to_tf_tensor(net)
 
     # Perform some last processing in normal tensorflow
-    out = tf.reduce_mean(result)
+    #out = tf.reduce_mean(result)
+    out = result
+    print('out.shape', out.shape)
+
+    var_grads = mtf.gradients(
+        [out], [v.outputs[0] for v in graph.trainable_variables])
+    optimizer = mtf.optimize.AdafactorOptimizer()
+    update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
+
+    print('update_ops', update_ops)
+
     print(tf.global_variables())
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        r = sess.run(out)
+
+
+        r = sess.run([out, update_ops])
+
+
     print("output of computation", r)
     exit(0)
 
