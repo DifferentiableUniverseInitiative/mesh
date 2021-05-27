@@ -88,8 +88,10 @@ def main(_):
     lowering = mtf.Lowering(graph, {mesh:mesh_impl})
     # Retrieve output of computation
     result = lowering.export_to_tf_tensor(net)
+
     # Perform some last processing in normal tensorflow
     out = tf.reduce_mean(result)
+    print(tf.global_variables())
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())

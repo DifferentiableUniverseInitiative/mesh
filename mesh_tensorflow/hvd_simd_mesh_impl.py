@@ -154,20 +154,21 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
         # construction. Therefore we directly use the cached device_stack here.
         # tf.get_default_graph()._device_function_stack = (
         #    mesh_impl.graph_device_function_stacks[physical_pnum])
-      slice_var_name = base_name + str(hvd.rank())
+      slice_var_name = base_name + '_rank_' + str(hvd.rank())
 
       if tf.get_variable_scope().reuse == tf.AUTO_REUSE:
         slice_var = tf.get_variable(
             initializer=zero_tensor,
             trainable=self._variable.trainable,
-            collections=["TPU_VAR"],
+            collections=["GPU_VAR"],
             dtype=variable.slice_dtype,
             name=slice_var_name)
       else:
         slice_var = tf.Variable(
-            initial_value=zero_tensor,
+        #slice_var = tf.get_variable(
+            initial_value=zero_tensor, #initial_value
             trainable=self._variable.trainable,
-            collections=["TPU_VAR"],
+            collections=["GPU_VAR"],
             dtype=variable.slice_dtype,
             name=slice_var_name,
             expected_shape=slice_shape)
@@ -259,7 +260,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
       # Handle both N -> 1 and N -> N cases.
       num_slices = min(len(assign_to_tensor_list), len(values))
       # devices = [""] * num_slices
-      
+      print('assign_to_slices') 
       return assign_fn(self.self._variable, assign_to_tensor_list, values)
       
       # return tf.group(
@@ -270,6 +271,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     
     @property
     def laid_out_tensor(self):
+      print('laid_out_tensor')
       return self._laid_out_tensor
 
     @property
@@ -475,7 +477,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
 
     if is_complex:
       t = tf.complex(t[...,0], t[...,1])
-
+    hvd.join()
     return self.LaidOutTensor([t])
 
   def allconcat(self, x, mesh_axis, concat_axis, stack=False):
@@ -547,7 +549,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     #   t = tf.reshape(t, new_shape)
 
     # # Let's just make sure everybody got there.
-    # hvd.join()
+    hvd.join()
     return self.LaidOutTensor([t])
 
   def alltoall(self, x, mesh_axis, split_axis, concat_axis):
@@ -622,6 +624,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     #                      i if i > concat_axis else 0 \
     #                      for i in range(len(old_shape))])
     # print("Yo",old_shape, split_axis, concat_axis, t.shape)
+    hvd.join()
     x = self.LaidOutTensor([t])
     return x
 
@@ -714,6 +717,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     else:
       t = t[c % n]
     print("HEEELLOO")
+    hvd.join()
     return self.LaidOutTensor([t])
 
   def slice_begin(self, tensor_shape):
