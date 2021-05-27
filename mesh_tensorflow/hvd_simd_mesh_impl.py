@@ -127,6 +127,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
         variable: a Variable (Operation)
         mesh_impl: a MeshImpl
       """
+      print('Init LaidOutVar..')
       self._variable = variable
       self._mesh_impl = mesh_impl
       shape = variable.outputs[0].shape
@@ -189,6 +190,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
       """
 
       # Only sending the current slice
+      print('About to finish init LOV')
       self._laid_out_tensor = mesh_impl.LaidOutTensor([slice_var])
 
       # Not needed for the moment
@@ -442,6 +444,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     if not mesh_axes:
       return x
 
+    print('About to allreduce')
     if reduction_fn_string != 'SUM':
       #TODO: Either add additional reduction ops to Horovod
       # or adapt the TPU mechanism for different types of reduce
@@ -463,6 +466,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     if is_complex:
       t = tf.complex(t[...,0], t[...,1])
 
+    print('Leaving allreduce')
     return self.LaidOutTensor([t])
 
   def allconcat(self, x, mesh_axis, concat_axis, stack=False):
@@ -484,6 +488,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     num_parts = self.shape[mesh_axis].size
     name_dim  = self.shape[mesh_axis].name
 
+    print('Im gonna allconcat.')
     # TODO [TL]
     # print('inside allconcat, CONCAT', stack)
     # print('hvd.rank(): ',hvd.rank(), ', old_shape: ', old_shape, ', num_parts: ', num_parts, ', name_dim: ', name_dim)
@@ -503,7 +508,9 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     if is_complex:
       t = tf.stack([tf.math.real(t), tf.math.imag(t)], axis=-1)
 
+    print('Before hvd.allgather, self._comms_id[name_dim]: ', self._comms_id[name_dim])
     t = hvd.allgather(t, process_set=self._comms_id[name_dim])
+    print('After hvd.allgather, self._comms_id[name_dim]: ', self._comms_id[name_dim])
 
     if is_complex:
       t = tf.complex(t[...,0], t[...,1])
