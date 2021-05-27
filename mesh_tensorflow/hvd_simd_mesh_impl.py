@@ -19,8 +19,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import math
-import os
 import random
 import zlib
 import collections
@@ -113,6 +111,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     def to_laid_out_tensor(self):
       return self
 
+
   class LaidOutVariable(object):
     """Maintains slice-variables and copy operations."""
 
@@ -123,6 +122,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
         variable: a Variable (Operation)
         mesh_impl: a MeshImpl
       """
+      print('Init LaidOutVar..')
       self._variable = variable
       self._mesh_impl = mesh_impl
       shape = variable.outputs[0].shape
@@ -130,103 +130,26 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
       base_name = variable.name
       slices = []
       slices_with_master_dtype = []
-      with tf.device(variable.master_device), utils.outside_all_rewrites():
-        zero_tensor = tf.zeros(slice_shape, dtype=variable.slice_dtype)
 
-      # pylint: disable=protected-access
-      init_device_stack = tf.get_default_graph()._device_function_stack
+      zero_tensor = tf.zeros(slice_shape, dtype=variable.slice_dtype)
+      # EiffL: I'm not sure this is always needed to store the rank in the name
+      slice_var_name = base_name + '_rank_' +  str(hvd.rank())
 
-      for physical_pnum in xrange(mesh_impl.size):
-        slice_var_name = base_name + "_slice_%d" % physical_pnum
-        # Use tf.Variable instead of tf.get_variable since latter adds lots of
-        # useless operations to the TF graph. Use tf.get_variable only if
-        # in a AUTO_REUSE scope.
-        # Note: Repeatedly 'with tf.device():' slows down the graph
-        # construction. Therefore we directly use the cached device_stack here.
-        tf.get_default_graph()._device_function_stack = (
-            mesh_impl.graph_device_function_stacks[physical_pnum])
-
-        if tf.get_variable_scope().reuse == tf.AUTO_REUSE:
-          slice_var = tf.get_variable(
-              initializer=zero_tensor,
-              trainable=self._variable.trainable,
-              collections=["TPU_VAR"],
-              dtype=variable.slice_dtype,
-              name=slice_var_name)
-        else:
-          slice_var = tf.Variable(
-              initial_value=zero_tensor,
-              trainable=self._variable.trainable,
-              collections=["TPU_VAR"],
-              dtype=variable.slice_dtype,
-              name=slice_var_name,
-              expected_shape=slice_shape)
-
-        slices.append(slice_var)
-
-      # Restore the initial stack
-      tf.get_default_graph()._device_function_stack = init_device_stack
-      # pylint: enable=protected-access
-
-      self._laid_out_tensor = mesh_impl.LaidOutTensor(
-          [tpu_variables.ReplicatedVariable(base_name, slices)])
-      with tf.device(variable.master_device), utils.outside_all_rewrites():
-        if os.environ.get("MTF_SEQUENCE_MODE", "") == "1":
-          if mesh_impl.copy_master_to_slice_ops:
-            with tf.control_dependencies(
-                [mesh_impl.copy_master_to_slice_ops[-1]]):
-              self._copy_master_to_slices = self._gen_copy_master_to_slices_op(
-                  variable.get_master(), shape, slices, slice_shape)
-          else:
-            self._copy_master_to_slices = self._gen_copy_master_to_slices_op(
-                variable.get_master(), shape, slices, slice_shape)
-
-          mesh_impl.copy_master_to_slice_ops.append(self._copy_master_to_slices)
-        else:
-          self._copy_master_to_slices = self._gen_copy_master_to_slices_op(
-              variable.get_master(), shape, slices, slice_shape)
-        slices_with_master_dtype = [
-            tf.cast(s, variable.master_dtype) for s in slices]
-        slices_with_master_dtype = [
-            slices_with_master_dtype[mesh_impl.l2p(logical_pnum)]
-            for logical_pnum in range(mesh_impl.size)]
-        self._copy_slices_to_master = variable.assign_to_master(
-            mesh_impl.combine_slices(slices_with_master_dtype, shape,
-                                     device=variable.master_device))
-
-    def _gen_copy_master_to_slices_op(self, master_variable, master_shape,
-                                      slices, slice_shape):
-      """Generate ops which slices master and assign to slices.
-
-      Args:
-        master_variable: The master variable.
-        master_shape: The shape of master variable.
-        slices: The list of slice-variables in physical order.
-        slice_shape: The shape of the slice variable.
-      Returns:
-        A grouped tf.assign ops.
-      """
-      mesh_impl = self._mesh_impl
-      master_layout = mesh_impl.tensor_layout(master_shape)
-      # For handling case: master is float32 and slices are bfloat16.
-      if master_variable.dtype != slices[0].dtype:
-        master_variable = tf.cast(master_variable, slices[0].dtype)
-      assign_ops = []
-      if master_layout.is_fully_replicated:
-        assign_ops = [tf.assign(t, master_variable) for t in slices]
+      if tf.get_variable_scope().reuse == tf.AUTO_REUSE:
+        slice_var = tf.get_variable(
+            initializer=zero_tensor,
+            trainable=self._variable.trainable,
+            dtype=variable.slice_dtype,
+            name=slice_var_name)
       else:
-        slice_dict = {}
-        for logical_pnum in xrange(len(slices)):
-          slice_begin = mesh_impl.slice_begin(master_shape, logical_pnum)
-          slice_begin_tuple = tuple(slice_begin)
-          # Reuse the same slice if slice_begin doesn't change.
-          if slice_begin_tuple not in slice_dict:
-            slice_dict[slice_begin_tuple] = tf.slice(master_variable,
-                                                     slice_begin, slice_shape)
-          physical_pnum = mesh_impl.l2p(logical_pnum)
-          assign_ops.append(
-              tf.assign(slices[physical_pnum], slice_dict[slice_begin_tuple]))
-      return tf.group(assign_ops)
+        slice_var = tf.Variable(
+            initial_value=zero_tensor,
+            trainable=self._variable.trainable,
+            dtype=variable.slice_dtype,
+            name=slice_var_name,
+            expected_shape=slice_shape)
+
+      self._laid_out_tensor = mesh_impl.LaidOutTensor([slice_var])
 
     def assign_to_slices(self, assign_fn, values, assign_to_tensor_list=None):
       """Assign to the slice variables.
@@ -242,14 +165,13 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
       """
       if assign_to_tensor_list is None:
         assign_to_tensor_list = self._laid_out_tensor.all_slices
-      # Handle both N -> 1 and N -> N cases.
-      num_slices = min(len(assign_to_tensor_list), len(values))
-      devices = [""] * num_slices
-      return tf.group(
-          mtf.parallel(devices, assign_fn,
-                       [self._variable] * len(devices),
-                       assign_to_tensor_list[:num_slices],
-                       values[:num_slices]))
+      
+      # For these SIMD implementations, there should only be one slice, or 
+      # there is something we don't understand
+      assert len(values) == 1
+      assert len(assign_to_tensor_list) == 1
+
+      return assign_fn(self._variable, assign_to_tensor_list[0], values[0])
 
     @property
     def laid_out_tensor(self):
@@ -257,19 +179,11 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
 
     @property
     def copy_master_to_slices(self):
-      return self._copy_master_to_slices
+      raise NotImplementedError
 
     @property
     def copy_slices_to_master(self):
-      return self._copy_slices_to_master
-
-  def laid_out_pnum(self):
-    """Returns a LaidOutTensor containing the logical processor number.
-
-    Returns:
-      a LaidOutTensor where each slice is an integer scalar
-    """
-    return self.LaidOutTensor([self.pnum_tensor])
+      raise NotImplementedError
 
   def allreduce(self, x, mesh_axes, reduction_fn_string):
     """Grouped allreduce, (summed across the given dimensions).
@@ -286,6 +200,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     if not mesh_axes:
       return x
 
+    print('About to allreduce')
     if reduction_fn_string != 'SUM':
       #TODO: Either add additional reduction ops to Horovod
       # or adapt the TPU mechanism for different types of reduce
@@ -307,6 +222,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     if is_complex:
       t = tf.complex(t[...,0], t[...,1])
 
+    print('Leaving allreduce')
     return self.LaidOutTensor([t])
 
   def allconcat(self, x, mesh_axis, concat_axis, stack=False):
@@ -328,6 +244,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     num_parts = self.shape[mesh_axis].size
     name_dim  = self.shape[mesh_axis].name
 
+    print('Im gonna allconcat.')
     # TODO [TL]
     # print('inside allconcat, CONCAT', stack)
     # print('hvd.rank(): ',hvd.rank(), ', old_shape: ', old_shape, ', num_parts: ', num_parts, ', name_dim: ', name_dim)
@@ -347,7 +264,9 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
     if is_complex:
       t = tf.stack([tf.math.real(t), tf.math.imag(t)], axis=-1)
 
+    print('Before hvd.allgather, self._comms_id[name_dim]: ', self._comms_id[name_dim])
     t = hvd.allgather(t, process_set=self._comms_id[name_dim])
+    print('After hvd.allgather, self._comms_id[name_dim]: ', self._comms_id[name_dim])
 
     if is_complex:
       t = tf.complex(t[...,0], t[...,1])
