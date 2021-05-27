@@ -16,51 +16,6 @@ tf.flags.DEFINE_integer("nc", 8, "Size of data cube")
 tf.flags.DEFINE_integer("batch_size", 1, "Batch Size")
 FLAGS = tf.flags.FLAGS
 
-def model_fn(nc=64, batch_size=1):
-    """
-    Example of function implementing a CNN and returning a value.
-    """
-    # Create the mesh TF graph
-    graph = mtf.Graph()
-    mesh = mtf.Mesh(graph, "my_mesh")
-    # Define the named dimensions
-    n_block_x = FLAGS.nx #2
-    n_block_y = FLAGS.ny #2
-    n_block_z = FLAGS.nz #1
-    batch_dim = mtf.Dimension("batch", batch_size)
-    nx_dim = mtf.Dimension('nx_block', n_block_x)
-    ny_dim = mtf.Dimension('ny_block', n_block_y)
-    nz_dim = mtf.Dimension('nz_block', n_block_z)
-    sx_dim = mtf.Dimension('sx_block', nc//n_block_x)
-    sy_dim = mtf.Dimension('sy_block', nc//n_block_y)
-    sz_dim = mtf.Dimension('sz_block', nc//n_block_z)
-
-    nc_x_dim = mtf.Dimension('nc_x_dim', nc)
-    nc_y_dim = mtf.Dimension('nc_y_dim', nc)
-    nc_z_dim = mtf.Dimension('nc_z_dim', 1)
-
-    # image_c_dim = mtf.Dimension('image_c', 3)
-    hidden_dim  = mtf.Dimension('h', 4)
-    
-    # Create some input data
-    """
-    data = mtf.random_uniform(mesh, [batch_dim, nx_dim, ny_dim, nz_dim,
-                                                sx_dim, sy_dim, sz_dim,
-                                                image_c_dim])
-    
-    net = mtf.layers.conv3d_with_blocks(data, hidden_dim,
-        filter_size=(3, 3, 3), strides=(1, 1, 1), padding='SAME',
-        d_blocks_dim=nx_dim, h_blocks_dim=ny_dim)
-    """
-
-    data = mtf.random_uniform(mesh, [batch_dim, nx_dim, ny_dim, nz_dim])
-
-    net = mtf.layers.dense(data, hidden_dim)
-
-    net = mtf.reduce_sum(net, output_shape=[batch_dim, hidden_dim] )
-    return net
-
-
 def new_model_fn():
 
 
@@ -100,26 +55,6 @@ def new_model_fn():
 
 
 def main(_):
-    """
-    num_tasks = int(os.environ['SLURM_NTASKS'])
-    print('num_tasks : ', num_tasks)
-    # Resolve the cluster from SLURM environment
-    cluster = tf.distribute.cluster_resolver.SlurmClusterResolver({"mesh": num_tasks},
-                                                                port_base=8822,
-                                                                gpus_per_node=FLAGS.gpus_per_node,
-                                                                gpus_per_task=FLAGS.gpus_per_task,
-                                                                tasks_per_node=FLAGS.tasks_per_node)
-    cluster_spec = cluster.cluster_spec()
-    print(cluster_spec)
-    # Create a server for all mesh members
-    server = tf.distribute.Server(cluster_spec, "mesh", cluster.task_id)
-    print(server)
-    if cluster.task_id >0:
-      server.join()
-    # Otherwise we are the main task, let's define the devices
-    devices = ["/job:mesh/task:%d/device:GPU:%d"%(i,j) for i in range(cluster_spec.num_tasks("mesh")) for j in range(FLAGS.gpus_per_task)]
-    print("List of devices", devices)
-    """
     # NEW
     global_step = tf.train.get_global_step()
     
@@ -138,7 +73,6 @@ def main(_):
     # Lower mesh computation
     graph = net.graph
     mesh = net.mesh
-    lowering = mtf.Lowering(graph, {mesh:mesh_impl})
     # Retrieve output of computation
     # result = lowering.export_to_tf_tensor(net)
     
@@ -149,21 +83,24 @@ def main(_):
    
     print('update_ops: ',update_ops)
 
-    # tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
-    # tf_update_ops.append(tf.assign_add(global_step, 1))
-    # train_op = tf.group(tf_update_ops)
-
+    lowering = mtf.Lowering(graph, {mesh:mesh_impl})
     # Perform some last processing in normal tensorflow
     result = lowering.export_to_tf_tensor(net)
     out = tf.reduce_mean(result)
+
+    tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
+    tf_update_ops.append(tf.assign_add(global_step, 1))
+    train_op = tf.group(tf_update_ops)
+
 
     print('Im about to enter the session..')
     print('before session: ', tf.global_variables())
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        
-        # r = sess.run([out, train_op])
-        r = sess.run([out, update_ops])
+        for i in range(10):
+            r, _ = sess.run([out, train_op])
+            print('iter', i)
+            print(sess.run(tf.trainable_variables()))
         # r = sess.run(out)
     
     print("output of computation", r)

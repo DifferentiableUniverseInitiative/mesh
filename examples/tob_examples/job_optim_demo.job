@@ -1,5 +1,4 @@
 #!/bin/bash
-#SBATCH --reservation=hackathon_idr27
 #SBATCH --job-name=demo_optim_var    # nom du job
 ##SBATCH --partition=gpu_p2          # de-commente pour la partition gpu_p2
 #SBATCH --ntasks=4                   # nombre total de tache MPI (= nombre total de GPU)
@@ -19,17 +18,13 @@
 module purge
 
 # chargement des modules
-module load tensorflow-gpu/py3/2.4.1+nccl-2.8.3-1
+module load tensorflow-gpu/py3/
 
 # echo des commandes lancees
 set -x
 
-# JZ FIX
-#export TMPDIR=$JOBSCRATCH
-#ln -s $JOBSCRATCH /tmp/nvidia
 # execution du code avec binding via bind_gpu.sh : 1 GPU pour 1 tache MPI.
-
-srun --unbuffered --mpi=pmi2 /gpfslocalsup/pub/idrtools/bind_gpu.sh  python -u optim_demo.py --nc=8 --batch_size=1
+srun --unbuffered --mpi=pmi2 -o log_%t.txt /gpfslocalsup/pub/idrtools/bind_gpu.sh  python -u optim_demo.py --nc=8 --batch_size=1
 
 
 
