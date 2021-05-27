@@ -164,14 +164,14 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
         slice_var = tf.get_variable(
             initializer=zero_tensor,
             trainable=self._variable.trainable,
-            collections=["GPU_VAR"],
+            # collections=["GPU_VAR"],
             dtype=variable.slice_dtype,
             name=slice_var_name)
       else:
         slice_var = tf.Variable(
             initial_value=zero_tensor,
             trainable=self._variable.trainable,
-            collections=["GPU_VAR"],
+            # collections=["GPU_VAR"],
             dtype=variable.slice_dtype,
             name=slice_var_name,
             expected_shape=slice_shape)
@@ -239,9 +239,12 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
       Returns:
         a tf.operation
       """
+
+      print('assign_to_slices ')
       if assign_to_tensor_list is None:
         assign_to_tensor_list = self._laid_out_tensor.all_slices
 
+      # return lambda : assign_fn(self._variable, assign_to_tensor_list, values)
       return assign_fn(self._variable, assign_to_tensor_list, values)
 
       """
