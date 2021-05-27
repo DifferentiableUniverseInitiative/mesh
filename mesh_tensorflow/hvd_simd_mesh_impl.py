@@ -160,7 +160,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
         slice_var = tf.get_variable(
             initializer=zero_tensor,
             trainable=self._variable.trainable,
-            collections=["GPU_VAR"],
+            #collections=["GPU_VAR"],
             dtype=variable.slice_dtype,
             name=slice_var_name)
       else:
@@ -168,7 +168,7 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
         #slice_var = tf.get_variable(
             initial_value=zero_tensor, #initial_value
             trainable=self._variable.trainable,
-            collections=["GPU_VAR"],
+            #collections=["GPU_VAR"],
             dtype=variable.slice_dtype,
             name=slice_var_name,
             expected_shape=slice_shape)
