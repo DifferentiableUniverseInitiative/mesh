@@ -29,7 +29,7 @@ def new_model_fn():
     nc_y_dim = mtf.Dimension('nc_y_dim', FLAGS.nc)
     nc_z_dim = mtf.Dimension('nc_z_dim', 1)
 
-    hidden_dim_int = 16
+    hidden_dim_int = 4
     hidden_dim  = mtf.Dimension('h', hidden_dim_int)
 
     # Define the input
@@ -98,8 +98,8 @@ def main(_):
         sess.run(tf.global_variables_initializer())
         for i in range(10):
             r, _ = sess.run([out, train_op])
-            print('iter', i)
-            print(sess.run(tf.trainable_variables()))
+            print('iter', i, r)
+            print(sess.run(tf.global_variables()))
         # r = sess.run(out)
     
     print("output of computation", r)
