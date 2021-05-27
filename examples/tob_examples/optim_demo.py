@@ -89,7 +89,6 @@ def main(_):
     out = tf.reduce_mean(result)
 
     tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
-    tf_update_ops.append(tf.assign_add(global_step, 1))
     train_op = tf.group(tf_update_ops)
 
 
