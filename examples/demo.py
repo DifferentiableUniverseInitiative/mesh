@@ -51,8 +51,14 @@ def model_fn(nc=64, batch_size=1):
         filter_size=(3, 3, 3), strides=(1, 1, 1), padding='SAME',
         d_blocks_dim=nx_dim, h_blocks_dim=ny_dim)
     """
-
-    net = mtf.reduce_sum((net-1)*(net-1), output_shape=[batch_dim, hidden_dim] )
+    one_tensor = mtf.import_tf_tensor(
+                   mesh,
+                   tf.ones([1, 1]),
+                   shape=mtf.Shape([batch_dim, hidden_dim]))
+    net = net - one_tensor
+    net = mtf.square(net)
+    net = mtf.reduce_sum(net, output_shape=[batch_dim, hidden_dim] )
+  
     return net
 
 
@@ -83,11 +89,15 @@ def main(_):
     #mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(mesh_shape, layout_rules, devices)
     mesh_impl = HvdSimdMeshImpl(mtf.convert_to_shape(mesh_shape), 
                                 mtf.convert_to_layout_rules(layout_rules))
+
+    global_step = tf.train.get_global_step()
+
     # Create computational graphs
     net  = model_fn(nc=FLAGS.nc, batch_size=FLAGS.batch_size)
     # Lower mesh computation
     graph = net.graph
     mesh = net.mesh
+
     lowering = mtf.Lowering(graph, {mesh:mesh_impl})
     # Retrieve output of computation
     result = lowering.export_to_tf_tensor(net)
@@ -98,9 +108,15 @@ def main(_):
     print('out.shape', out.shape)
 
     var_grads = mtf.gradients(
-        [out], [v.outputs[0] for v in graph.trainable_variables])
+        [net], [v.outputs[0] for v in graph.trainable_variables])
     optimizer = mtf.optimize.AdafactorOptimizer()
     update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
+    
+    print('update_ops', update_ops)
+    
+    tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
+    tf_update_ops.append(tf.assign_add(global_step, 1))
+    train_op = tf.group(tf_update_ops)
 
     print('update_ops', update_ops)
 
@@ -109,11 +125,13 @@ def main(_):
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
 
+        #sess.run(update_ops)
+        sess.run(train_op)
+        #r = sess.run([out, update_ops])
 
-        r = sess.run([out, update_ops])
 
-
-    print("output of computation", r)
+    #print("output of computation", r)
+    print('I am out')
     exit(0)
 
 
