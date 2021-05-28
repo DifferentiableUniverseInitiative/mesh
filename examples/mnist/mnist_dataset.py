@@ -94,9 +94,12 @@ def download(directory, filename):
 
 def dataset(directory, images_file, labels_file):
   """Download and parse MNIST dataset."""
-
-  images_file = download(directory, images_file)
-  labels_file = download(directory, labels_file)
+  print(os.getcwd())
+  print('dir, file')
+  print(directory, images_file)
+  print('')
+  #images_file = download(directory, images_file)
+  #labels_file = download(directory, labels_file)
 
   check_image_file_header(images_file)
   check_labels_file_header(labels_file)

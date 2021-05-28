@@ -133,7 +133,7 @@ def model_fn(features, labels, mode, params):
     update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
 
   lowering = mtf.Lowering(graph, {mesh: mesh_impl})
-  restore_hook = mtf.MtfRestoreHook(lowering)
+  #restore_hook = mtf.MtfRestoreHook(lowering)
 
   tf_logits = lowering.export_to_tf_tensor(logits)
   if mode != tf.estimator.ModeKeys.PREDICT:
@@ -144,6 +144,7 @@ def model_fn(features, labels, mode, params):
     tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
     tf_update_ops.append(tf.assign_add(global_step, 1))
     train_op = tf.group(tf_update_ops)
+    '''
     saver = tf.train.Saver(
         tf.global_variables(),
         sharded=True,
@@ -157,7 +158,7 @@ def model_fn(features, labels, mode, params):
         save_steps=1000,
         saver=saver,
         listeners=[saver_listener])
-
+    '''
     accuracy = tf.metrics.accuracy(
         labels=labels, predictions=tf.argmax(tf_logits, axis=1))
 
@@ -170,9 +171,10 @@ def model_fn(features, labels, mode, params):
 
     # restore_hook must come before saver_hook
     return tf.estimator.EstimatorSpec(
-        tf.estimator.ModeKeys.TRAIN, loss=tf_loss, train_op=train_op,
-        training_chief_hooks=[restore_hook, saver_hook])
-
+        tf.estimator.ModeKeys.TRAIN, loss=tf_loss, train_op=train_op)#,
+    #    '''
+    #    training_chief_hooks=[restore_hook, saver_hook])
+    #    '''
   if mode == tf.estimator.ModeKeys.PREDICT:
     predictions = {
         "classes": tf.argmax(tf_logits, axis=1),

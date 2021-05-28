@@ -151,6 +151,45 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
 
       self._laid_out_tensor = mesh_impl.LaidOutTensor([slice_var])
 
+      slices = [slice_var]
+      self._copy_master_to_slices = self._gen_copy_master_to_slices_op(
+              variable.get_master(), shape, slices, slice_shape)
+
+      self._copy_slices_to_master = variable.assign_to_master(
+            mesh_impl.combine_slices(slices, shape,
+                                     device=variable.master_device))
+
+    def _gen_copy_master_to_slices_op(self, master_variable, master_shape,
+                                      slices, slice_shape):
+      """Generate ops which slices master and assign to slices.
+
+      Args:
+        master_variable: The master variable.
+        master_shape: The shape of master variable.
+        slices: The list of slice-variables in physical order.
+        slice_shape: The shape of the slice variable.
+      Returns:
+        A grouped tf.assign ops.
+      """
+      mesh_impl = self._mesh_impl
+      master_layout = mesh_impl.tensor_layout(master_shape)
+
+      # For handling case: master is float32 and slices are bfloat16.
+      if master_variable.dtype != slices[0].dtype:
+        master_variable = tf.cast(master_variable, slices[0].dtype)
+      
+      assign_ops = []
+      
+      if master_layout.is_fully_replicated:
+        return tf.assign(slices[0], master_variable)
+        #assign_ops = [tf.assign(t, master_variable) for t in slices]
+      
+      else:
+        slice_dict = {}
+        # slice_begin = mesh_impl.slice_begin(master_shape)
+        return tf.assign(slices[0], mtf.slice(master_variable, master_shape))
+
+
     def assign_to_slices(self, assign_fn, values, assign_to_tensor_list=None):
       """Assign to the slice variables.
 
@@ -179,11 +218,13 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
 
     @property
     def copy_master_to_slices(self):
-      raise NotImplementedError
+      #raise NotImplementedError
+      return self._copy_master_to_slices
 
     @property
     def copy_slices_to_master(self):
-      raise NotImplementedError
+      #raise NotImplementedError
+      return self._copy_slices_to_master
 
   def allreduce(self, x, mesh_axes, reduction_fn_string):
     """Grouped allreduce, (summed across the given dimensions).
