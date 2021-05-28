@@ -64,12 +64,9 @@ class ToyModelInput(object):
     self._labels = self._images
     logging.info('init ToyModelInput()')
 
-  def __call__(self, params):
+  def __call__(self):
     """Input function which provides a single batch for train or eval."""
-    # Retrieves the batch size for the current shard. The # of shards is
-    # computed according to the input pipeline deployment. See
-    # `tf.estimator.tpu.RunConfig` for details.
-    batch_size = params['batch_size']
+    batch_size = FLAGS.batch_size
     logging.info('call ToyModelInput() with batch size {}'.format(batch_size))
 
     ds = Dataset.from_tensor_slices((self._images, self._labels)).repeat()
@@ -185,11 +182,18 @@ def run_toy_model_gpu():
 
   iterations_per_loop = FLAGS.iterations
   mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
-  classifier = estimator_lib.Estimator(
-      model_fn=model_fn,
+  layout_rules = mtf.convert_to_layout_rules(FLAGS.layout)
+  # Instantiate mesh
+
+  config = tf.estimator.RunConfig(
       model_dir=FLAGS.model_dir,
-      train_batch_size=FLAGS.batch_size,
-      eval_batch_size=FLAGS.batch_size)
+      save_checkpoints_steps=None,  # Disable the default saver
+      save_checkpoints_secs=None,  # Disable the default saver
+      log_step_count_steps=iterations_per_loop,
+      save_summary_steps=iterations_per_loop)
+  classifier = tf.estimator.Estimator(
+      model_fn=model_fn,
+      config=config)
   current_step = estimator_lib._load_global_step_from_checkpoint_dir(FLAGS.model_dir)  # pylint: disable=protected-access,line-too-long
   logging.info('Current step %d', current_step)
   if FLAGS.steps_per_checkpoint == 0:
