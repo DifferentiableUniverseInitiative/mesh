@@ -41,7 +41,7 @@ tf.flags.DEFINE_string('slice_dtype', 'float32', 'dtype for slice vars.')
 tf.flags.DEFINE_string('activation_dtype', 'float32', 'dtype for activations.')
 tf.flags.DEFINE_string('optimizer', 'SGD', 'optimizer (SGD or Adafactor).')
 tf.flags.DEFINE_float('lr', 1e-4, 'Learning rate.')
-tf.flags.DEFINE_string('mesh_shape', 'all:8', 'mesh shape')
+tf.flags.DEFINE_string('mesh_shape', 'all:4', 'mesh shape')
 tf.flags.DEFINE_string('layout', 'hidden_odd:all', 'layout rules')
 tf.flags.DEFINE_integer('iterations', 100,
                         'Number of iterations per training loop.')
