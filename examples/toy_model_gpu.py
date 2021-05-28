@@ -174,7 +174,7 @@ def model_fn(features, labels, mode, params):
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           loss=tf_loss,
-          eval_metrics=eval_metrics)
+          eval_metrics_ops=eval_metrics)
 
 
 def run_toy_model_gpu():
