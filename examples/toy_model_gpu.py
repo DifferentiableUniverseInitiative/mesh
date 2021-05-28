@@ -22,6 +22,9 @@ from __future__ import print_function
 import mesh_tensorflow as mtf
 import numpy
 import tensorflow.compat.v1 as tf
+from functools import partial
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
 
 from mesh_tensorflow.hvd_simd_mesh_impl import HvdSimdMeshImpl
 
@@ -118,7 +121,7 @@ def toy_model(features, mesh):
   return y, loss
 
 
-def model_fn(features, labels, mode, params):
+def model_fn(features, labels, mode, params, mesh_impl=None):
   """A model is called by Estimator."""
   del labels
   global_step = tf.train.get_global_step()
@@ -126,8 +129,6 @@ def model_fn(features, labels, mode, params):
   mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
   layout_rules = mtf.convert_to_layout_rules(FLAGS.layout)
 
-  mesh_impl = HvdSimdMeshImpl(mtf.convert_to_shape(mesh_shape), 
-                              mtf.convert_to_layout_rules(layout_rules))
   mesh = mtf.Mesh(graph, 'my_mesh')
 
   with mtf.utils.outside_all_rewrites():
@@ -170,11 +171,11 @@ def model_fn(features, labels, mode, params):
         mean_logits = tf.metrics.mean(tf_logits)
         return {'mean_logits': mean_logits}
 
-      eval_metrics = (metric_fn, [tf_logits])
+      eval_metrics = metric_fn(tf_logits)
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           loss=tf_loss,
-          eval_metrics_ops=eval_metrics)
+          eval_metric_ops=eval_metrics)
 
 
 def run_toy_model_gpu():
@@ -184,17 +185,18 @@ def run_toy_model_gpu():
   mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
   layout_rules = mtf.convert_to_layout_rules(FLAGS.layout)
   # Instantiate mesh
-
+  mesh_impl = HvdSimdMeshImpl(mtf.convert_to_shape(mesh_shape), 
+                              mtf.convert_to_layout_rules(layout_rules))
+  model_fn_impl = partial(model_fn, mesh_impl=mesh_impl)
+  model_dir = FLAGS.model_dir +('_%d'%(comm.Get_rank()))
   config = tf.estimator.RunConfig(
-      model_dir=FLAGS.model_dir,
-      save_checkpoints_steps=None,  # Disable the default saver
-      save_checkpoints_secs=None,  # Disable the default saver
+      model_dir=model_dir,
       log_step_count_steps=iterations_per_loop,
       save_summary_steps=iterations_per_loop)
   classifier = tf.estimator.Estimator(
-      model_fn=model_fn,
+      model_fn=model_fn_impl,
       config=config)
-  current_step = estimator_lib._load_global_step_from_checkpoint_dir(FLAGS.model_dir)  # pylint: disable=protected-access,line-too-long
+  current_step = estimator_lib._load_global_step_from_checkpoint_dir(model_dir)  # pylint: disable=protected-access,line-too-long
   logging.info('Current step %d', current_step)
   if FLAGS.steps_per_checkpoint == 0:
     classifier.train(input_fn=ToyModelInput(), max_steps=FLAGS.train_steps)
