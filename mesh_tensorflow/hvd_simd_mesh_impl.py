@@ -177,11 +177,26 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
 
     @property
     def copy_master_to_slices(self):
-      raise NotImplementedError
+      return tf.no_op()
 
     @property
     def copy_slices_to_master(self):
-      raise NotImplementedError
+      """
+      This function is only used before saving variables. One of the side effects
+      is to make sure to synchronize replicas through the save/restore. 
+      In this MPI implementation, we are not using the master variables, but
+      we can still use this function call as an opportunity to sync up duplicated
+      slices, before they are saved to disk.
+      We'll use a reduce_mean for this.
+      """
+      shape = self._variable.outputs[0].shape
+      tensor_layout = self._mesh_impl.tensor_layout(shape)
+      if tensor_layout.is_fully_replicated:
+        synced_slice = hvd.allreduce(self._laid_out_tensor.all_slices[0])
+        return tf.assign(self._laid_out_tensor.all_slices[0], synced_slice)
+      # TODO: Handle partially replicated variables
+      else:
+        return tf.no_op()
 
   def allreduce(self, x, mesh_axes, reduction_fn_string):
     """Grouped allreduce, (summed across the given dimensions).

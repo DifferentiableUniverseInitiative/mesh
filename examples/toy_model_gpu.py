@@ -62,6 +62,8 @@ class ToyModelInput(object):
 
   def __init__(self):
     self._num_examples = 10000  # 10k
+    # Setting the seed for the dataset
+    numpy.random.seed(1234)
     self._images = numpy.random.uniform(
         0, 1.0, [self._num_examples, FLAGS.io_size]).astype(numpy.float32)
     self._labels = self._images
@@ -126,8 +128,6 @@ def model_fn(features, labels, mode, params, mesh_impl=None):
   del labels
   global_step = tf.train.get_global_step()
   graph = mtf.Graph()
-  mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
-  layout_rules = mtf.convert_to_layout_rules(FLAGS.layout)
 
   mesh = mtf.Mesh(graph, 'my_mesh', use_master_variable=False)
 
