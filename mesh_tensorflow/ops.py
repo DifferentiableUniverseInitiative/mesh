@@ -4029,7 +4029,13 @@ class Variable(Operation):
             **kwargs)
       self._name = self._master.name[:self._master.name.find(":")]
     else:
-      self._name = name
+      scope_name = tf.get_variable_scope().name
+      if scope_name:
+        full_name = scope_name + "/" + name
+      else:
+        full_name = name
+      self._name = full_name
+
     self._outputs = [Tensor(self, shape, dtype.activation_dtype)]
 
     # Rerun to take the new output into account.
