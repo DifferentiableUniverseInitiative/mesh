@@ -57,13 +57,14 @@ tf.flags.DEFINE_string(
     default='',
     help='The directory where the model will be stored.')
 
+# Setting the seed for the dataset
+numpy.random.seed(1234)
+
 class ToyModelInput(object):
   """Wrapper class that acts as the input_fn to Estimator."""
 
   def __init__(self):
     self._num_examples = 10000  # 10k
-    # Setting the seed for the dataset
-    numpy.random.seed(1234)
     self._images = numpy.random.uniform(
         0, 1.0, [self._num_examples, FLAGS.io_size]).astype(numpy.float32)
     self._labels = self._images
