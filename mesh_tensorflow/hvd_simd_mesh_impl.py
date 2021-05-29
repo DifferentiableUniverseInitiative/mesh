@@ -128,8 +128,6 @@ class HvdSimdMeshImpl(mtf.MeshImpl):
       shape = variable.outputs[0].shape
       slice_shape = mesh_impl.slice_shape(shape)
       base_name = variable.name
-      slices = []
-      slices_with_master_dtype = []
 
       zero_tensor = tf.zeros(slice_shape, dtype=variable.slice_dtype)
       # EiffL: I'm not sure this is always needed to store the rank in the name

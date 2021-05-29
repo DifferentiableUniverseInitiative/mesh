@@ -847,10 +847,12 @@ class Mesh(object):
   A Lowering assigns each Mesh to a MeshImpl.
   """
 
-  def __init__(self, graph, name, variable_placer=None):
+  def __init__(self, graph, name, variable_placer=None, 
+               use_master_variable=True):
     self._graph = graph
     self._name = name
     self._variable_placer = variable_placer
+    self._use_master_variable=use_master_variable
 
   @property
   def graph(self):
@@ -863,6 +865,9 @@ class Mesh(object):
     else:
       return "cpu:0"
 
+  @property
+  def use_master_variable(self):
+    return self._use_master_variable
 
 class MeshImpl(object):
   """Implementation of a Mesh.
@@ -4013,7 +4018,7 @@ class Variable(Operation):
       raise ValueError("dtype must be a VariableDType got %s" % dtype)
     self._dtype = dtype
     self._trainable = trainable
-    if not isinstance(self, StackedVariable):
+    if (not isinstance(self, StackedVariable)) and (mesh.use_master_variable):
       with tf.device(mesh.variable_placer_fn), utils.outside_all_rewrites():
         self._master = tf.get_variable(
             name,
@@ -4023,6 +4028,8 @@ class Variable(Operation):
             trainable=trainable,
             **kwargs)
       self._name = self._master.name[:self._master.name.find(":")]
+    else:
+      self._name = name
     self._outputs = [Tensor(self, shape, dtype.activation_dtype)]
 
     # Rerun to take the new output into account.

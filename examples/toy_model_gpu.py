@@ -129,7 +129,7 @@ def model_fn(features, labels, mode, params, mesh_impl=None):
   mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
   layout_rules = mtf.convert_to_layout_rules(FLAGS.layout)
 
-  mesh = mtf.Mesh(graph, 'my_mesh')
+  mesh = mtf.Mesh(graph, 'my_mesh', use_master_variable=False)
 
   with mtf.utils.outside_all_rewrites():
     logits, loss = toy_model(features, mesh)
